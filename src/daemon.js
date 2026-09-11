@@ -62,15 +62,20 @@ async function main() {
   });
   deviceSocket.connect();
 
+  // Stay online, and keep the idle screen's pairing code current. The code has to come from
+  // register(), not heartbeat() -- see the note in api.js. register() is idempotent for a device
+  // id we already hold, so re-calling it is how a code that expired gets replaced, and how this
+  // screen learns an agent has claimed the device (the backend then stops issuing a code).
   setInterval(async () => {
     try {
-      const result = await heartbeat(deviceId);
-      if (result.pairingCode && result.pairingCode !== pairingCode) {
+      await heartbeat(deviceId);
+      const result = await register(deviceId);
+      if (result.pairingCode !== pairingCode) {
         pairingCode = result.pairingCode;
         await pushIdleInfo(pairingCode);
       }
     } catch (err) {
-      console.error('[daemon] heartbeat failed:', err.message);
+      console.error('[daemon] heartbeat/refresh failed:', err.message);
     }
   }, HEARTBEAT_INTERVAL_MS);
 
