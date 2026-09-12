@@ -28,8 +28,14 @@ export function startIdleServer() {
 
   const wss = new WebSocketServer({ server, path: '/idle-ws' });
   const clients = new Set();
+  // The daemon registers (and broadcasts the resulting code) before the kiosk browser has even
+  // loaded the page, let alone opened this socket — without replaying the last payload to each
+  // new connection, a client that joins after that first broadcast never sees a code at all and
+  // is stuck showing the "······" placeholder until the code happens to rotate.
+  let lastPayload = null;
   wss.on('connection', (ws) => {
     clients.add(ws);
+    if (lastPayload) ws.send(lastPayload);
     ws.on('close', () => clients.delete(ws));
   });
 
@@ -38,10 +44,11 @@ export function startIdleServer() {
   });
 
   return {
-    /** Push the current pairing info to whatever's showing the idle page right now. */
+    /** Push the current pairing info to whatever's showing the idle page right now, and remember
+     * it for any client that connects later. */
     broadcast(data) {
-      const payload = JSON.stringify(data);
-      for (const ws of clients) if (ws.readyState === ws.OPEN) ws.send(payload);
+      lastPayload = JSON.stringify(data);
+      for (const ws of clients) if (ws.readyState === ws.OPEN) ws.send(lastPayload);
     },
     url: `http://localhost:${IDLE_SERVER_PORT}/idle`,
   };
