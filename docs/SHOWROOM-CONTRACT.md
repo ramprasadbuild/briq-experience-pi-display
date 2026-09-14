@@ -469,6 +469,11 @@ part of the contract.
   aerial level, a slim unit-chip strip at the floor level, and the tooltip only while
   `tip_unit_no` is set.
 
+**Box relay (§6.1)**
+- While a LAN presenter is connected, the box ignores frames from its cloud-room viewer seat. The
+  cloud room keeps replaying its stale last state to that seat on every reconnect and would
+  otherwise flick the TV back to it.
+
 **Presenter link (§6.1)**
 - Switching the target TV mid-presentation is a new destination: the tablet tears down both
   transports, clears its bad-URL memory, re-selects LAN first, then cloud, and replays the last

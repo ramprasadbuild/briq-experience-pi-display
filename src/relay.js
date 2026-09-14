@@ -89,6 +89,14 @@ export class LocalRelay {
 
   /** Records and forwards one state (from a LAN presenter, or the cloud bridge). */
   inject(state, source = 'cloud') {
+    // A LAN presenter owns the TV: the cloud room replays its stale last state to this viewer on
+    // every reconnect, so cloud frames are ignored while a presenter is connected on the LAN.
+    if (source === 'cloud' && this.presenters.size > 0) {
+      if (!this.cloudMuted) this.log.info?.('[relay] cloud frames ignored while a LAN presenter is connected');
+      this.cloudMuted = true;
+      return;
+    }
+    this.cloudMuted = false;
     if (state == null || typeof state !== 'object') return;
     if (typeof state.cmd === 'string') {
       this.lastCommand = state;

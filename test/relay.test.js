@@ -125,6 +125,19 @@ test('cloud bridge injection is forwarded to local viewers and replayed', async 
   v.ws.close();
 });
 
+test('cloud frames are ignored while a LAN presenter is connected', async (t) => {
+  const { port, relay } = await setup(t);
+  const p = connect(`ws://127.0.0.1:${port}/relay?role=presenter&key=rk_test`);
+  await p.opened;
+  relay.inject({ cmd: 'present', slug: 'stale' }, 'cloud');
+  assert.equal(relay.lastCommand, null);
+  p.ws.close();
+  await p.closed;
+  while (relay.stats().presenters > 0) await new Promise((r) => setTimeout(r, 5));
+  relay.inject({ cmd: 'present', slug: 'fresh' }, 'cloud');
+  assert.equal(relay.lastCommand?.slug, 'fresh');
+});
+
 test('rotating the relay key kicks connected presenters', async (t) => {
   const { port, relay, setKey } = await setup(t);
   const p = connect(`ws://127.0.0.1:${port}/relay?role=presenter&key=rk_test`);
