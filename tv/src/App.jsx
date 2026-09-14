@@ -9,25 +9,30 @@ import Location from './screens/Location.jsx';
 import Renders from './screens/Renders.jsx';
 import VR from './screens/VR.jsx';
 import Walkthrough from './screens/Walkthrough.jsx';
+import { hostBridge, onHost, toHost } from './host.js';
 import { openSocket, wsBase } from './socket.js';
 import { Empty, Loading } from './ui/Chrome.jsx';
 
-/** Device status + pushes from the daemon (loopback-only /local/events). */
+/** Device status + pushes from the daemon (loopback-only /local/events), or from the host bridge. */
 function useDevice() {
   const [status, setStatus] = useState(null);
   const [identify, setIdentify] = useState(null);
   const [contentTick, setContentTick] = useState(0);
-  const [connected, setConnected] = useState(false);
-  useEffect(() => openSocket(`${wsBase()}/local/events`, {
-    onOpen: () => setConnected(true),
-    onClose: () => setConnected(false),
-    onMessage: (m) => {
+  const [connected, setConnected] = useState(hostBridge);
+  useEffect(() => {
+    const onMessage = (m) => {
       if (m.t === 'status') setStatus(m.status);
       else if (m.t === 'identify') setIdentify({ name: m.name, device_id: m.device_id, until: Date.now() + (m.seconds ?? 10) * 1000 });
       else if (m.t === 'content') setContentTick((n) => n + 1);
       else if (m.t === 'reload') location.reload();
-    },
-  }), []);
+    };
+    if (hostBridge) return onHost(onMessage);
+    return openSocket(`${wsBase()}/local/events`, {
+      onOpen: () => setConnected(true),
+      onClose: () => setConnected(false),
+      onMessage,
+    });
+  }, []);
   useEffect(() => {
     if (!identify) return undefined;
     const t = setTimeout(() => setIdentify(null), Math.max(0, identify.until - Date.now()));
@@ -36,22 +41,39 @@ function useDevice() {
   return { status, identify, contentTick, connected };
 }
 
-/** The presented project's local manifest. */
+/** A local manifest as the screens use it: the payload, plus local path → original URL. */
+function projectData(manifest) {
+  const keys = new Map((manifest.files ?? []).map((f) => [f.path, f.key]));
+  return { ...manifest.payload, __keys: keys };
+}
+
+/** The presented project's local manifest (from the daemon, or from the host bridge). */
 function useProject(slug, contentTick) {
   const [project, setProject] = useState({ state: 'none' });
   useEffect(() => {
     if (!slug) { setProject({ state: 'none' }); return undefined; }
     let cancelled = false;
     setProject((p) => (p.slug === slug && p.state === 'ready' ? p : { state: 'loading', slug }));
+    const ready = (manifest) => {
+      if (cancelled) return;
+      setProject((p) => (p.state === 'ready' && p.slug === slug && p.etag === manifest.etag ? p : { state: 'ready', slug, etag: manifest.etag, data: projectData(manifest) }));
+    };
+    if (hostBridge) {
+      const off = onHost((m) => {
+        if (m.t !== 'project' || m.slug !== slug || cancelled) return;
+        if (m.state === 'ready' && m.manifest) ready(m.manifest);
+        else if (m.state === 'missing') setProject({ state: 'missing', slug });
+        else if (m.state === 'error') setProject({ state: 'error', slug, error: m.error ?? 'unavailable' });
+      });
+      toHost({ t: 'project', slug });
+      return () => { cancelled = true; off(); };
+    }
     fetch(`/local/projects/${encodeURIComponent(slug)}.json`, { cache: 'no-store' })
       .then(async (r) => {
         if (cancelled) return;
         if (r.status === 404) return setProject({ state: 'missing', slug });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const manifest = await r.json();
-        const keys = new Map((manifest.files ?? []).map((f) => [f.path, f.key]));
-        const data = { ...manifest.payload, __keys: keys };
-        if (!cancelled) setProject((p) => (p.state === 'ready' && p.slug === slug && p.etag === manifest.etag ? p : { state: 'ready', slug, etag: manifest.etag, data }));
+        ready(await r.json());
       })
       .catch((err) => { if (!cancelled) setProject({ state: 'error', slug, error: err.message }); });
     return () => { cancelled = true; };
@@ -76,9 +98,13 @@ function Kiosk({ data, kiosk, status }) {
 export default function App() {
   const { status, identify, contentTick, connected } = useDevice();
   const [view, dispatch] = useReducer(viewReducer, initialView);
-  useEffect(() => openSocket(`${wsBase()}/relay?role=viewer`, {
-    onMessage: (m) => { if (m.t === 'state') dispatch({ type: 'frame', state: m.state, at: Date.now() }); },
-  }), []);
+  useEffect(() => {
+    const onMessage = (m) => { if (m.t === 'state') dispatch({ type: 'frame', state: m.state, at: Date.now() }); };
+    if (hostBridge) return onHost(onMessage);
+    return openSocket(`${wsBase()}/relay?role=viewer`, { onMessage });
+  }, []);
+  // Host bridge: everything is subscribed now; ask for status and the last command/state.
+  useEffect(() => { if (hostBridge) toHost({ t: 'ready' }); }, []);
   const project = useProject(view.mode === 'present' ? view.slug : null, contentTick);
 
   let body;

@@ -124,6 +124,12 @@ chapter draws an offline schematic from the coordinates.
 | `walkthrough.playing/time/rate/muted/at` | `<video>` from local content; expected position = time + (now − at)·rate; seeks only when drift > 0.5 s |
 | `location.poi/is_3d/measuring/map_cam` | Mapbox (online) or schematic (offline), landmark list with the selection |
 
+**Host bridge (Android TV).** The same build also runs inside the Android TV app
+([`briq-experience-display`](../briq-experience-display)), which has no Node daemon. When
+`window.ReactNativeWebView` exists, `tv/src/host.js` replaces the loopback sockets and
+`/local/projects/*` fetches: the native host calls `window.__briqHost.receive({t:'state'|'status'|'identify'|'content'|'reload'|'project', …})`
+and the page posts `{t:'ready'}` / `{t:'project', slug}` back. On the Linux box nothing changes.
+
 Legacy frames are tolerated: `{cmd:'load', url:'…/experience/<slug>'}` presents that slug if it is
 on the box; `{tab, mediaIdx, towerId, …}` is mapped onto chapters.
 
