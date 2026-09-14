@@ -1,0 +1,6 @@
+.m3d { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 42%, #2b2621 0%, #14110e 55%, #0b0a09 100%); }
+.m3d model-viewer { width: 100%; height: 100%; --poster-color: transparent; background: transparent; }
+.m3d-hs { display: flex; flex-direction: column; padding: 0.4rem 0.8rem; border-radius: 0.5rem; white-space: nowrap; background: rgba(11, 10, 9, 0.84); border: 1px solid var(--lineGold); color: var(--text); font: 500 1.05rem/1.3 var(--sans); transform: translate(-50%, -110%); pointer-events: none; }
+.m3d-hs span { color: var(--gold2); font-weight: 400; font-size: 0.95rem; }
+.m3d.nolabels .m3d-hs { display: none; }
+.m3d-cover { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--textDim); font-weight: 500; font-size: 1.1rem; letter-spacing: 0.2em; }

@@ -1,0 +1,13 @@
+.br { position: absolute; inset: 0; background: var(--bg); overflow: hidden; }
+.br-body { position: absolute; top: 6.6rem; bottom: 7.2rem; left: var(--edge); right: var(--edge); display: flex; gap: 2rem; }
+.br-rail { width: 13rem; flex-shrink: 0; overflow: hidden; display: flex; flex-direction: column; gap: 1rem; padding: 1rem; border-radius: 1rem; background: var(--bg2); border: 1px solid var(--line); }
+.br-thumb { position: relative; flex-shrink: 0; border-radius: 0.4rem; border: 0.2rem solid transparent; overflow: hidden; opacity: 0.55; transition: all 400ms; }
+.br-thumb.on { border-color: var(--gold); opacity: 1; }
+.br-thumb img { width: 100%; background: #fff; }
+.br-thumb-n { position: absolute; right: 0.4rem; bottom: 0.3rem; padding: 0.1rem 0.5rem; border-radius: 0.4rem; background: rgba(0, 0, 0, 0.7); font-size: 0.9rem; color: var(--textDim); }
+.br-view { position: relative; flex: 1; min-width: 0; }
+.br-page { position: absolute; inset: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.br-holder { display: flex; align-items: center; justify-content: center; }
+.br-holder canvas { background: #fff; box-shadow: 0 1.5rem 5rem rgba(0, 0, 0, 0.6); animation: fade-in 300ms ease both; flex-shrink: 0; }
+.br-bar { position: absolute; left: 50%; bottom: 2rem; transform: translateX(-50%); display: flex; gap: 1rem; align-items: center; }
+.br-bar .counter { height: 3.6rem; font-size: 1.6rem; }

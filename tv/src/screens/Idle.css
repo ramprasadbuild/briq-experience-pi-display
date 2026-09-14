@@ -1,0 +1,42 @@
+.idle { position: absolute; inset: 0; overflow: hidden; background: var(--bg); display: flex; flex-direction: column; padding: 3rem var(--edge) 2.4rem; }
+.idle-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.18; filter: blur(1.2rem) saturate(0.8); transform: scale(1.08); }
+.idle-glow { position: absolute; inset: 0; background: radial-gradient(ellipse at 28% 45%, rgba(201, 164, 92, 0.12) 0%, transparent 55%), radial-gradient(ellipse at 80% 90%, rgba(201, 164, 92, 0.06) 0%, transparent 45%); }
+.idle-top, .idle-main, .idle-foot { position: relative; }
+
+.idle-top { display: flex; align-items: center; justify-content: space-between; }
+.idle-brand { font-family: var(--display); font-size: 2rem; letter-spacing: 0.16em; color: var(--gold); }
+.idle-brand span { color: var(--textDim); font-size: 1.4rem; margin-left: 0.6rem; }
+.idle-net { display: flex; align-items: center; gap: 0.8rem; font-weight: 500; font-size: 1.05rem; letter-spacing: 0.2em; color: var(--textDim); }
+.idle-addr { color: var(--textFaint); letter-spacing: 0.08em; margin-left: 0.8rem; }
+.dot { width: 0.8rem; height: 0.8rem; border-radius: 50%; background: var(--textFaint); display: inline-block; }
+.dot-good { background: var(--available); box-shadow: 0 0 0.8rem rgba(95, 191, 132, 0.7); }
+
+.idle-main { flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 6rem; }
+.idle-left { display: flex; flex-direction: column; gap: 1.4rem; max-width: 62rem; }
+.idle-h1 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 5rem; line-height: 1.08; letter-spacing: 0.02em; }
+.idle-name { margin: 0; font-family: var(--display); font-weight: 400; font-size: 7rem; line-height: 1; letter-spacing: 0.03em; }
+.idle-sub { margin: 0; color: var(--textDim); font-size: 1.9rem; line-height: 1.45; }
+.idle-sub b { color: var(--text); font-weight: 500; }
+.idle-code { display: flex; gap: 1rem; margin-top: 1.6rem; }
+.idle-code span { width: 6.6rem; height: 8.4rem; display: flex; align-items: center; justify-content: center; border-radius: 1rem; background: var(--glass); border: 1px solid var(--lineGold); font-family: var(--display); font-size: 5.4rem; color: var(--gold2); }
+
+.idle-qr { padding: 1.6rem; border-radius: 1.6rem; background: #f3eee4; box-shadow: 0 2rem 6rem rgba(0, 0, 0, 0.5); }
+.idle-qr img { width: 24rem; height: 24rem; image-rendering: pixelated; }
+
+.idle-foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 3rem; padding-top: 1.8rem; border-top: 1px solid var(--line); }
+.idle-state { display: flex; align-items: center; gap: 1.6rem; padding: 1.4rem 2rem; border-radius: 1.2rem; background: var(--glass2); border: 1px solid var(--line); max-width: 70rem; }
+.idle-state-empty { border-color: var(--lineGold); }
+.idle-state-body { display: flex; flex-direction: column; gap: 0.6rem; min-width: 30rem; }
+.idle-state-title { font-family: var(--display); font-size: 1.9rem; letter-spacing: 0.04em; }
+.idle-state-text { color: var(--textDim); font-size: 1.35rem; line-height: 1.4; }
+.idle-bar { height: 0.45rem; border-radius: 1rem; background: var(--glassHi); overflow: hidden; }
+.idle-bar div { height: 100%; background: var(--gold); transition: width 600ms ease; }
+
+.idle-projects { display: flex; align-items: center; gap: 1.6rem; flex-wrap: wrap; }
+.idle-projects-kick { margin-right: 0.6rem; }
+.idle-project { display: flex; align-items: center; gap: 1rem; padding: 0.7rem 1.4rem 0.7rem 0.7rem; border-radius: 1rem; background: var(--glass2); border: 1px solid var(--line); }
+.idle-project img, .idle-project-ph { width: 6.4rem; height: 4rem; border-radius: 0.6rem; object-fit: cover; background: var(--glassHi); }
+.idle-project-name { font-family: var(--display); font-size: 1.5rem; letter-spacing: 0.06em; }
+.idle-project-meta { color: var(--textFaint); font-size: 0.9rem; letter-spacing: 0.2em; margin-top: 0.2rem; }
+.idle-warn { color: var(--hold); font-size: 1.2rem; }
+.idle-device { color: var(--textFaint); font-size: 0.95rem; letter-spacing: 0.2em; white-space: nowrap; }

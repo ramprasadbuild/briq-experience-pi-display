@@ -1,0 +1,12 @@
+.rn { position: absolute; inset: 0; background: var(--bg); overflow: hidden; }
+.rn-stage { position: absolute; top: 6.6rem; bottom: 9.6rem; left: var(--edge); right: var(--edge); overflow: hidden; }
+.rn-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity 800ms ease, transform 180ms linear; will-change: transform, opacity; }
+.rn-img.on { opacity: 1; }
+.rn-shade { position: absolute; left: 0; right: 0; bottom: 0; height: 12rem; background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.6)); pointer-events: none; }
+.rn-caption { position: absolute; top: 2rem; right: var(--edge); display: flex; gap: 0.8rem; z-index: 10; }
+.rn-counter { position: absolute; left: var(--edge); bottom: 2.4rem; z-index: 10; height: 3.6rem; font-size: 1.6rem; }
+.rn-zoom { position: absolute; right: var(--edge); bottom: 2.4rem; z-index: 10; font-size: 1.3rem; }
+.rn-strip { position: absolute; left: 50%; bottom: 1.8rem; transform: translateX(-50%); display: flex; gap: 0.9rem; z-index: 10; }
+.rn-thumb { width: 9.6rem; height: 6rem; border-radius: 0.5rem; overflow: hidden; border: 0.2rem solid transparent; background: var(--glassHi); opacity: 0.6; transition: all 500ms ease; }
+.rn-thumb.on { border-color: var(--gold); opacity: 1; transform: translateY(-0.4rem); }
+.rn-thumb img { width: 100%; height: 100%; object-fit: cover; }

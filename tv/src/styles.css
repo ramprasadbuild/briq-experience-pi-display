@@ -1,0 +1,75 @@
+/*
+ * TV kiosk base. The layout is designed on a 1920×1080 grid where 1rem = 16px and scales with
+ * the viewport, so 3840×2160 is the same composition at twice the pixels. Type is ~1.6× the
+ * tablet's sizes for 3–5 m viewing.
+ */
+:root {
+  --bg: #0b0a09;
+  --bg2: #141210;
+  --glass: rgba(255, 255, 255, 0.055);
+  --glass2: rgba(12, 11, 10, 0.86);
+  --glassHi: rgba(255, 255, 255, 0.1);
+  --line: rgba(255, 255, 255, 0.12);
+  --lineGold: rgba(201, 164, 92, 0.45);
+  --text: #f3eee4;
+  --textDim: #c7bfb1;
+  --textFaint: #8a8276;
+  --gold: #c9a45c;
+  --gold2: #e2c483;
+  --goldDim: rgba(201, 164, 92, 0.16);
+  --onGold: #14110c;
+  --available: #5fbf84;
+  --hold: #d9a24a;
+  --sold: #e06868;
+  --live: #e0574f;
+  --display: 'Marcellus', Georgia, 'Times New Roman', serif;
+  --sans: 'Jost', 'Helvetica Neue', Arial, sans-serif;
+  --edge: 3rem;
+  color-scheme: dark;
+}
+
+html { font-size: calc(100vw / 120); }
+@media (min-aspect-ratio: 16/9) { html { font-size: calc(100vh / 67.5); } }
+
+* { box-sizing: border-box; cursor: none !important; }
+html, body, #root { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
+body { color: var(--text); font-family: var(--sans); font-size: 1.5rem; -webkit-font-smoothing: antialiased; user-select: none; }
+img { display: block; }
+
+.app, .kiosk { position: absolute; inset: 0; overflow: hidden; }
+.kiosk { animation: fade-in 600ms ease both; }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+.kicker { font-family: var(--sans); font-weight: 500; font-size: 1.05rem; letter-spacing: 0.28em; color: var(--gold); }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 0.7rem; height: 3.2rem; padding: 0 1.4rem; border-radius: 999px;
+  background: var(--glass2); border: 1px solid var(--line); color: var(--text);
+  font-family: var(--sans); font-weight: 500; font-size: 1.05rem; letter-spacing: 0.16em; white-space: nowrap;
+}
+.pill svg { width: 1.2rem; height: 1.2rem; }
+.pill-on { background: var(--gold); border-color: var(--gold); color: var(--onGold); }
+.counter { font-family: var(--display); font-size: 1.3rem; letter-spacing: 0.14em; }
+
+.glass-panel { background: var(--glass2); border: 1px solid var(--line); border-radius: 1.2rem; }
+
+.chapter-head { position: absolute; top: 2rem; left: var(--edge); z-index: 20; display: flex; align-items: center; gap: 1.2rem; max-width: 70%; }
+.chapter-logo { height: 2.6rem; width: auto; max-width: 8rem; object-fit: contain; }
+.chapter-brand { font-family: var(--display); font-size: 1.7rem; letter-spacing: 0.12em; color: var(--text); text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6); white-space: nowrap; }
+.chapter-crumb { display: inline-flex; align-items: center; gap: 0.8rem; height: 2.8rem; padding: 0 1.2rem; border-radius: 999px; background: var(--glass2); border: 1px solid var(--line); }
+.chapter-no { font-family: var(--display); color: var(--gold); font-size: 1.2rem; letter-spacing: 0.1em; }
+.chapter-name { font-weight: 500; font-size: 1rem; letter-spacing: 0.22em; }
+
+.empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.6rem; padding: 4rem; background: radial-gradient(ellipse at 50% 40%, #1b1815 0%, var(--bg) 70%); }
+.empty-card { display: flex; flex-direction: column; align-items: center; gap: 1.2rem; max-width: 60rem; text-align: center; }
+.empty-title { font-family: var(--display); font-size: 3rem; letter-spacing: 0.06em; }
+.empty-text { color: var(--textDim); font-size: 1.6rem; line-height: 1.5; }
+.loading-label { color: var(--textFaint); font-weight: 500; letter-spacing: 0.24em; font-size: 1.1rem; }
+.spinner { width: 3.6rem; height: 3.6rem; border-radius: 50%; border: 0.22rem solid var(--goldDim); border-top-color: var(--gold); animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.identify { position: absolute; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.72); animation: fade-in 300ms ease both; }
+.identify-card { display: flex; flex-direction: column; align-items: center; gap: 1.4rem; padding: 4rem 7rem; border-radius: 2rem; background: var(--bg2); border: 0.2rem solid var(--gold); box-shadow: 0 0 6rem rgba(201, 164, 92, 0.35); animation: pulse 1.6s ease-in-out infinite; }
+.identify-name { font-family: var(--display); font-size: 6rem; letter-spacing: 0.06em; }
+.identify-id { color: var(--textFaint); font-size: 1.4rem; letter-spacing: 0.2em; }
+@keyframes pulse { 50% { box-shadow: 0 0 9rem rgba(201, 164, 92, 0.6); } }

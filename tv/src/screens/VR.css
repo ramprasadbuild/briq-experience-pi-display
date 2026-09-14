@@ -1,0 +1,12 @@
+.vr { position: absolute; inset: 0; background: #000; overflow: hidden; }
+.vr-viewer, .vr-canvas { position: absolute; inset: 0; }
+.vr .psv-container { background: var(--bg); }
+.vr .psv-loader-container { display: none !important; }
+.vr-error { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 1.4rem; align-items: center; justify-content: center; pointer-events: none; color: var(--textDim); font-weight: 500; letter-spacing: 0.2em; font-size: 1.2rem; }
+.vr-link { display: inline-flex; align-items: center; gap: 0.5rem; white-space: nowrap; padding: 0.6rem 1.1rem; border-radius: 999px; background: rgba(7, 7, 11, 0.78); border: 1px solid rgba(255, 255, 255, 0.18); color: var(--text); font: 500 1.2rem/1 var(--sans); }
+.vr-link b { color: var(--gold); }
+.vr-room { position: absolute; top: 6.4rem; left: var(--edge); display: flex; gap: 0.8rem; align-items: center; z-index: 10; }
+.vr-bar { position: absolute; left: 50%; bottom: 2rem; transform: translateX(-50%); display: flex; gap: 0.5rem; padding: 0.5rem; border-radius: 999px; background: rgba(0, 0, 0, 0.85); border: 1px solid var(--line); z-index: 10; }
+.vr-bar-item { display: flex; align-items: center; gap: 0.6rem; height: 3.2rem; padding: 0 1.4rem; border-radius: 999px; color: var(--gold); font-weight: 500; font-size: 1.25rem; }
+.vr-bar-item svg { width: 1.2rem; height: 1.2rem; }
+.vr-bar-item.on { background: var(--gold); color: var(--onGold); }

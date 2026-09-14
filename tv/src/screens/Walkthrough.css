@@ -1,0 +1,12 @@
+.wt { position: absolute; inset: 0; background: #000; overflow: hidden; }
+.wt-video, .wt-embed { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; border: 0; background: #000; }
+.wt-center { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 1.4rem; align-items: center; justify-content: center; }
+.wt-bar { position: absolute; left: 0; right: 0; bottom: 0; padding: 1.2rem var(--edge) 1.8rem; display: flex; flex-direction: column; gap: 1rem; background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.7)); }
+.wt-track { position: relative; height: 0.3rem; border-radius: 0.2rem; background: rgba(255, 255, 255, 0.2); }
+.wt-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--gold); border-radius: 0.2rem; }
+.wt-knob { position: absolute; top: -0.45rem; margin-left: -0.6rem; width: 1.2rem; height: 1.2rem; border-radius: 50%; background: var(--gold); }
+.wt-ctrls { display: flex; align-items: center; gap: 1rem; }
+.wt-icon { width: 3.2rem; height: 3.2rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--glass2); border: 1px solid var(--line); }
+.wt-icon svg { width: 1.3rem; height: 1.3rem; }
+.wt-time { font-size: 1.35rem; letter-spacing: 0.04em; }
+.wt-spacer { flex: 1; }
