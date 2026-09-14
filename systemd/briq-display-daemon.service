@@ -1,21 +1,27 @@
 [Unit]
-Description=BriQ Experience Center - Pi display daemon
-After=network-online.target
-Wants=network-online.target
-# Must be up before the kiosk browser tries to load http://localhost:8080/idle.
+Description=BriQ TV box daemon (sync, local server, relay)
+# Deliberately not waiting for network-online: the box must come up and present offline.
+After=network.target
 Before=briq-kiosk.service
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/briq-experience-pi-display
+User=@USER@
+WorkingDirectory=@APP_DIR@
+Environment=NODE_ENV=production
+Environment=BRIQ_DATA_DIR=/var/lib/briq-display
+Environment=BRIQ_PORT=8787
+# API_BASE_URL, MAPBOX_TOKEN, BRIQ_* overrides live here (written by install.sh):
+EnvironmentFile=-/etc/default/briq-display
+# /var/lib/briq-display, owned by @USER@. Holds device.json (0600) and content/.
+StateDirectory=briq-display
+StateDirectoryMode=0750
 ExecStart=/usr/bin/node src/daemon.js
 Restart=always
 RestartSec=3
-Environment=NODE_ENV=production
-# Override per deployment if these ever differ from the defaults in src/config.js:
-# Environment=API_BASE_URL=https://briq-crm-app-hiw6sglj2q-ue.a.run.app
-# Environment=WEB_APP_ORIGIN=https://briq-crm-app.web.app
+# restart_browser / reboot commands use `sudo -n systemctl …` (see /etc/sudoers.d/briq-display),
+# so NoNewPrivileges must stay off.
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target

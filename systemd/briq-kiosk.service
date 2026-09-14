@@ -1,22 +1,27 @@
 [Unit]
-Description=BriQ Experience Center - kiosk browser (cage + Chromium)
-After=briq-display-daemon.service
-Requires=briq-display-daemon.service
+Description=BriQ TV kiosk (cage + Chromium on the local TV app)
+After=systemd-user-sessions.service plymouth-quit-wait.service briq-display-daemon.service
+# Wants, not Requires: restarting the daemon must not tear down the browser; the TV app reconnects.
+Wants=briq-display-daemon.service
+Conflicts=getty@tty7.service
 
 [Service]
 Type=simple
-User=pi
-# cage is a minimal Wayland compositor that runs exactly one fullscreen app — there is no
-# desktop environment underneath this, which is the point.
-ExecStart=/usr/bin/cage -- /usr/bin/chromium-browser \
-  --kiosk \
-  --noerrdialogs \
-  --disable-infobars \
-  --disable-session-crashed-bubble \
-  --autoplay-policy=no-user-gesture-required \
-  --remote-debugging-port=9222 \
-  --check-for-update-interval=31536000 \
-  http://localhost:8080/idle
+User=@USER@
+PAMName=login
+TTYPath=/dev/tty7
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty7
+UtmpMode=user
+EnvironmentFile=-/etc/default/briq-kiosk
+ExecStartPre=+/usr/bin/chvt 7
+# cage: a Wayland compositor that runs exactly one fullscreen app, no desktop underneath.
+ExecStart=/usr/bin/cage -d -- @APP_DIR@/scripts/kiosk.sh
 Restart=always
 RestartSec=3
 
