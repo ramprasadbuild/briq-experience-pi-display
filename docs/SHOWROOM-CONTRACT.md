@@ -417,6 +417,9 @@ part of the contract.
   `{url, expires_at}`. Calling `/complete` again retries a failed asset or recording.
 - Asset JSON adds `updated_at` and a per-rendition `error`; the legacy `/media` response adds
   `asset_id`.
+- `POST /api/experience/recordings` rolls its row back when the upload URL cannot be signed
+  (502 `Storage is unavailable right now — try again.`), so the tablet's retry after storage
+  recovers is a clean create.
 
 **Tablet (§5, §7, §8)**
 - sha256 is verified for files up to 64 MB (read in 3 MB chunks); larger files are checked by size
@@ -425,6 +428,11 @@ part of the contract.
   public payloads (opt-in, no hashes).
 - In the legacy single-event fallback, event types that endpoint doesn't know are dropped.
 - Recordings are AAC m4a, mono, 64 kbps, 44.1 kHz.
+- A CRM revoke reaches the tablet on its next authenticated call with that token: any 401
+  `tablet_revoked` on the current session's token wipes content and returns to login, including the
+  outbox's event and recording flushes (every 30 s while work is queued) that pass the token
+  explicitly. Launch, foreground re-sync and the Showroom TVs list also call. A tablet with nothing
+  queued and no screen activity is not polled.
 
 ---
 
