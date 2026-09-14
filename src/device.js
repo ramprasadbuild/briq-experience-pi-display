@@ -6,6 +6,7 @@ import { EventEmitter } from 'node:events';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { HttpError } from './api.js';
+import { orgBranding } from './identity.js';
 
 const RETRY_SAME_TARGET_MS = 5 * 60_000;
 
@@ -131,6 +132,7 @@ export class DeviceAgent extends EventEmitter {
     if ('pairing_code' in res) patch.pairing_code = res.pairing_code ?? null;
     if ('pairing_code_expires_at' in res) patch.pairing_code_expires_at = res.pairing_code_expires_at ?? null;
     if ('name' in res) patch.name = res.name ?? null;
+    if ('org' in res) patch.org = orgBranding(res.org);
     if ('relay_key' in res) patch.relay_key = res.relay_key ?? null;
     const before = this.identity.get().relay_key;
     await this.identity.update(patch);
@@ -285,6 +287,7 @@ export class DeviceAgent extends EventEmitter {
     return {
       device_id: id.device_id,
       name: id.name,
+      org: id.claimed ? id.org ?? null : null,
       claimed: !!id.claimed,
       pairing_code: id.claimed ? null : id.pairing_code,
       pairing_code_expires_at: id.claimed ? null : id.pairing_code_expires_at,

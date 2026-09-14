@@ -436,6 +436,45 @@ part of the contract.
 
 ---
 
+## 8b. Amendment 3 — client branding and the TV detail reveal (2026-09-15)
+
+**Branding rule (all screens a buyer can see)**
+- The brand shown on the TV and on the tablet's presented screens is the project's `builder`,
+  else `org.name`, else the neutral "Experience Center". The words "BriQ" never appear on a
+  buyer-facing screen; the operator-only login screen is exempt.
+- `org.logo_url` fills every logo slot (chapter heads, home, the idle header) when present.
+
+**Heartbeat (§2.2) carries the org**
+- The authenticated heartbeat response gains `org` between `name` and `relay_key`:
+  `"org": {"name": "Godrej", "logo_url": "https://…/godrej.png"}`. Both keys are nullable
+  (blank strings are normalised to null). `org` is `null` while the device is unclaimed or the org
+  has no settings row. The legacy unauthenticated heartbeat is unchanged.
+- The box persists `org` in its identity and includes it in the status it pushes to the TV page,
+  so the idle/pairing screen shows the client's name and logo instead of a platform wordmark, and
+  the QR card carries the org name as a caption. Before a claim the header reads "Experience
+  Center". A change to org settings reaches a claimed TV on its next heartbeat.
+
+**Kiosk state (§6.3): `inventory.show_details`**
+- Type `boolean`, default `false`; sent in the inventory slice and shallow-merged like every other
+  field.
+- At `level: "unit"`, `true` tells the TV to reveal the unit's data (unit, type, status, carpet
+  area, facing, indicative price, plus the on-floor mini plate or the compare table) as a panel
+  over the render; `false` or absent keeps the TV image-only. At any other level the field has no
+  effect on the TV. The tablet's own detail card is always visible.
+- The tablet sets it back to `false` on every path that leaves the unit level (up, crumb taps,
+  tower or floor navigation, type-filter changes, show-all, reset). A chapter switch does not clear
+  it, so returning to the inventory chapter restores whatever was showing.
+- The TV inventory chapter no longer mirrors the presenter's filters rail; it shows the stage
+  (aerial, elevation, floor plate, unit render or 3D) edge to edge, a compact project card at the
+  aerial level, a slim unit-chip strip at the floor level, and the tooltip only while
+  `tip_unit_no` is set.
+
+**Presenter link (§6.1)**
+- Switching the target TV mid-presentation is a new destination: the tablet tears down both
+  transports, clears its bad-URL memory, re-selects LAN first, then cloud, and replays the last
+  command and state to the new TV. A refreshed device list for the same TV re-probes the LAN as
+  soon as a relay key or address appears, without dropping a working link.
+
 ## 9. Sizes to plan for (per project, 5 min of 4K film)
 
 | | Tablet | TV box |

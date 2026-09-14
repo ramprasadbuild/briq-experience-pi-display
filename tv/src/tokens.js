@@ -71,3 +71,17 @@ export function haversineKm(a, b) {
   return 2 * 6371 * Math.asin(Math.sqrt(s));
 }
 export const kmText = (km) => (km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`);
+
+/** What the TV shows when it doesn't know whose showroom it is. Never our own name. */
+export const NEUTRAL_BRAND = 'Experience Center';
+
+/**
+ * The brand a presented project carries (the client's, never ours): the project's builder first,
+ * then the org's Brand Settings name, else the neutral label. Same rule as the tablet.
+ */
+export function brandName(data) {
+  const builder = typeof data?.builder === 'string' ? data.builder.trim() : '';
+  if (builder) return builder;
+  const org = typeof data?.org?.name === 'string' ? data.org.name.trim() : '';
+  return org || NEUTRAL_BRAND;
+}

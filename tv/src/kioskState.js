@@ -11,7 +11,7 @@ export function defaultKiosk(slug) {
     renders: { index: 0, playing: false, zoom: 1, pan_x: 0, pan_y: 0 },
     inventory: {
       level: 'aerial', tower_id: null, floor: null, unit_no: null, tip_unit_no: null, cfg: null, unit_mode: 'standard',
-      model_cam: { theta: 35, phi: 55, radius: null, spin: true, labels: true }, compare: [],
+      model_cam: { theta: 35, phi: 55, radius: null, spin: true, labels: true }, compare: [], show_details: false,
     },
     brochure: { page: 1, zoom: 1 },
     vr: { scene_idx: null, node_id: null, cam: null },

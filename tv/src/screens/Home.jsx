@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import Icon from '../ui/Icon.jsx';
 import { Kicker } from '../ui/Chrome.jsx';
-import { pad2 } from '../tokens.js';
+import { brandName, pad2 } from '../tokens.js';
 import './Home.css';
 
 const TOUR_MS = 26_000; // one full turn of the ring, as on the tablet
@@ -105,7 +105,7 @@ export default function Home({ data, s, chapters }) {
       </div>
 
       <div className="home-foot">
-        <div className="home-foot-brand">{(data.org?.name ?? data.builder ?? 'BriQ').toUpperCase()}</div>
+        <div className="home-foot-brand">{brandName(data).toUpperCase()}</div>
         <div className="home-foot-auto"><span className={`home-foot-dot ${paused ? 'paused' : ''}`} />{paused ? 'PAUSED' : 'AUTO TOUR'}</div>
         <div className="home-foot-place">
           <div className="home-foot-kick">SALES GALLERY</div>

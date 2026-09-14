@@ -1,11 +1,15 @@
 import Icon from '../ui/Icon.jsx';
 import { Loading } from '../ui/Chrome.jsx';
+import { NEUTRAL_BRAND } from '../tokens.js';
 import './Idle.css';
 
 /**
  * The TV when nothing is being presented: pairing code + QR while unclaimed, the TV's name and
  * what's on it once claimed, and a clear "no content yet" state (with the reason) when the box
  * has nothing to show — e.g. against a backend that doesn't serve manifests yet.
+ *
+ * Branding is the client's, never ours: `status.org` ({name, logo_url}) comes from the heartbeat
+ * once the box is claimed; an unclaimed box shows a neutral "Experience Center".
  */
 export default function Idle({ status, connected }) {
   if (!status) return <div className="idle"><Loading label={connected ? 'Starting' : 'Connecting to the box'} /></div>;
@@ -15,6 +19,8 @@ export default function Idle({ status, connected }) {
   const syncing = sync.state === 'syncing';
   const address = status.lan_addresses?.[0];
   const code = status.pairing_code ? String(status.pairing_code) : null;
+  const orgName = status.org?.name || null;
+  const orgLogo = status.org?.logo_url || null;
 
   return (
     <div className="idle">
@@ -22,7 +28,10 @@ export default function Idle({ status, connected }) {
       {projects[0]?.hero_image ? <img className="idle-bg" src={projects[0].hero_image} alt="" /> : null}
 
       <header className="idle-top">
-        <div className="idle-brand">BriQ <span>Experience Center</span></div>
+        <div className="idle-brand">
+          {orgLogo ? <img className="idle-logo" src={orgLogo} alt="" /> : null}
+          {orgName ? <>{orgName} <span>Experience Center</span></> : NEUTRAL_BRAND}
+        </div>
         <div className="idle-net">
           <span className={`dot ${status.online ? 'dot-good' : ''}`} />
           <span>{status.online ? 'ONLINE' : 'OFFLINE'}</span>
@@ -45,7 +54,7 @@ export default function Idle({ status, connected }) {
           ) : code ? (
             <>
               <div className="kicker">Pair this TV</div>
-              <h1 className="idle-h1">Scan with the BriQ tablet</h1>
+              <h1 className="idle-h1">Scan with the showroom tablet</h1>
               <p className="idle-sub">Or enter this code in <b>Devices → Pair a TV</b>.</p>
               <div className="idle-code">
                 {code.split('').map((d, i) => <span key={i}>{d}</span>)}
@@ -54,7 +63,7 @@ export default function Idle({ status, connected }) {
           ) : (
             <>
               <div className="kicker">Pair this TV</div>
-              <h1 className="idle-h1">Waiting for the BriQ service</h1>
+              <h1 className="idle-h1">Waiting for the content service</h1>
               <p className="idle-sub">
                 {status.online ? 'Fetching a pairing code…' : 'This TV is offline. It will show a pairing code when it can reach the internet.'}
               </p>
@@ -65,6 +74,7 @@ export default function Idle({ status, connected }) {
         {!status.claimed && status.qr_data_uri ? (
           <section className="idle-qr">
             <img src={status.qr_data_uri} alt="Pairing QR" />
+            {orgName ? <div className="idle-qr-caption">{orgName}</div> : null}
           </section>
         ) : null}
       </main>

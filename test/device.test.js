@@ -32,7 +32,7 @@ async function backend(t, { legacy = false } = {}) {
         if (legacy) return json(res, 200, {});
         if (!authOk(req)) return json(res, 401, { error: 'bad_secret' });
         const commands = state.commands.splice(0);
-        return json(res, 200, { claimed: true, pairing_code: null, pairing_code_expires_at: null, name: 'Lobby TV', relay_key: 'rk_1', projects: state.projects, commands });
+        return json(res, 200, { claimed: true, pairing_code: null, pairing_code_expires_at: null, name: 'Lobby TV', org: { name: 'Godrej', logo_url: 'https://cdn.example/godrej.png' }, relay_key: 'rk_1', projects: state.projects, commands });
       },
       'GET /api/experience/manifest': (req, res) => {
         state.order.push('manifest');
@@ -106,6 +106,9 @@ test('register stores id + secret (0600); heartbeat sends Device auth and the §
   assert.equal(identity.get().relay_key, 'rk_1');
   assert.equal(agent.status().claimed, true);
   assert.equal(agent.online, true);
+  // The client's branding (Amendment: heartbeat `org`) is persisted and reaches the idle screen's status.
+  assert.deepEqual(identity.get().org, { name: 'Godrej', logo_url: 'https://cdn.example/godrej.png' });
+  assert.deepEqual(agent.status().org, { name: 'Godrej', logo_url: 'https://cdn.example/godrej.png' });
 
   // A second register sends the stored secret back (same device).
   await agent.api.register();

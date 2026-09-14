@@ -4,8 +4,9 @@
 .idle-top, .idle-main, .idle-foot { position: relative; }
 
 .idle-top { display: flex; align-items: center; justify-content: space-between; }
-.idle-brand { font-family: var(--display); font-size: 2rem; letter-spacing: 0.16em; color: var(--gold); }
+.idle-brand { display: flex; align-items: center; gap: 1rem; font-family: var(--display); font-size: 2rem; letter-spacing: 0.16em; color: var(--gold); }
 .idle-brand span { color: var(--textDim); font-size: 1.4rem; margin-left: 0.6rem; }
+.idle-logo { height: 3.2rem; max-width: 16rem; object-fit: contain; }
 .idle-net { display: flex; align-items: center; gap: 0.8rem; font-weight: 500; font-size: 1.05rem; letter-spacing: 0.2em; color: var(--textDim); }
 .idle-addr { color: var(--textFaint); letter-spacing: 0.08em; margin-left: 0.8rem; }
 .dot { width: 0.8rem; height: 0.8rem; border-radius: 50%; background: var(--textFaint); display: inline-block; }
@@ -20,8 +21,9 @@
 .idle-code { display: flex; gap: 1rem; margin-top: 1.6rem; }
 .idle-code span { width: 6.6rem; height: 8.4rem; display: flex; align-items: center; justify-content: center; border-radius: 1rem; background: var(--glass); border: 1px solid var(--lineGold); font-family: var(--display); font-size: 5.4rem; color: var(--gold2); }
 
-.idle-qr { padding: 1.6rem; border-radius: 1.6rem; background: #f3eee4; box-shadow: 0 2rem 6rem rgba(0, 0, 0, 0.5); }
+.idle-qr { display: flex; flex-direction: column; align-items: center; gap: 1rem; padding: 1.6rem; border-radius: 1.6rem; background: #f3eee4; box-shadow: 0 2rem 6rem rgba(0, 0, 0, 0.5); }
 .idle-qr img { width: 24rem; height: 24rem; image-rendering: pixelated; }
+.idle-qr-caption { max-width: 24rem; color: var(--onGold); font-family: var(--display); font-size: 1.5rem; letter-spacing: 0.14em; text-align: center; text-transform: uppercase; }
 
 .idle-foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 3rem; padding-top: 1.8rem; border-top: 1px solid var(--line); }
 .idle-state { display: flex; align-items: center; gap: 1.6rem; padding: 1.4rem 2rem; border-radius: 1.2rem; background: var(--glass2); border: 1px solid var(--line); max-width: 70rem; }

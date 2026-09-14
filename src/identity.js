@@ -1,6 +1,7 @@
 // The box's persistent identity: device id + secret (§1.3), plus what the backend told us last
-// that the box must remember to keep working offline (name, relay key, claimed). Stored as one
-// JSON file with mode 0600 and written atomically (tmp + rename) so a power cut can't truncate it.
+// that the box must remember to keep working offline (name, relay key, claimed, the client's org
+// branding). Stored as one JSON file with mode 0600 and written atomically (tmp + rename) so a
+// power cut can't truncate it.
 import { chmod, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -9,10 +10,19 @@ const EMPTY = {
   device_secret: null,
   relay_key: null,
   name: null,
+  org: null, // { name, logo_url } of the org this box is claimed into
   claimed: false,
   pairing_code: null,
   pairing_code_expires_at: null,
 };
+
+/** Heartbeat `org` → what identity keeps: `{ name, logo_url }` or null. Tolerates a sloppy backend. */
+export function orgBranding(org) {
+  if (!org || typeof org !== 'object') return null;
+  const name = typeof org.name === 'string' && org.name.trim() ? org.name.trim() : null;
+  const logo = typeof org.logo_url === 'string' && org.logo_url.trim() ? org.logo_url.trim() : null;
+  return { name, logo_url: logo };
+}
 
 export class IdentityStore {
   constructor(dataDir, { legacyIdFile = null } = {}) {

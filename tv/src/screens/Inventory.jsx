@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { centroid, resolveRenderPack, unitPosition } from '../renderPack.js';
-import { areaText, ordinal, priceText, sqftRange, STATUS_LABEL, statusColor, xc } from '../tokens.js';
+import { areaText, ordinal, priceText, STATUS_LABEL, statusColor, xc } from '../tokens.js';
 import { Empty, Kicker } from '../ui/Chrome.jsx';
 import HotspotImage from '../ui/HotspotImage.jsx';
 import Icon from '../ui/Icon.jsx';
@@ -10,12 +10,17 @@ import './Inventory.css';
 /**
  * Chapter 02 · Inventory — Aerial → Tower → Floor → Unit, following `inventory` from the tablet:
  * level, tower_id, floor, unit_no, tip_unit_no (tooltip / highlight), cfg (type filter),
- * unit_mode (standard | sqft | sqm | 3d), model_cam and the compare list. Render-pack shapes are
- * drawn in status colours when the project has them; grids and plans otherwise.
+ * unit_mode (standard | sqft | sqm | 3d), model_cam, the compare list and show_details.
+ *
+ * Image-first: the render fills the stage at every level and the data stays out of the way —
+ * filters are the presenter's tool and never appear here; the flat-details panel and the on-floor
+ * mini plate slide in over the render only while the tablet has `show_details` on. Render-pack
+ * shapes are drawn in status colours when the project has them; grids and plans otherwise.
  */
 
 const LEVELS = ['aerial', 'tower', 'floor', 'unit'];
 const MODE_LABEL = { standard: 'Standard', sqft: 'Square Ft.', sqm: 'Square Mtr.', '3d': '3D View' };
+const COMPARE_COLUMNS = 3;
 const sameId = (a, b) => a != null && b != null && String(a) === String(b);
 const byUnitNo = (a, b) => String(a.unit_no).localeCompare(String(b.unit_no), undefined, { numeric: true });
 
@@ -45,7 +50,6 @@ export default function Inventory({ data, s, meta }) {
   const floorNo = s.floor != null ? Number(s.floor) : unit ? Number(unit.floor) : tip ? Number(tip.floor) : null;
   const floorUnits = shown.filter((u) => Number(u.floor) === floorNo).sort(byUnitNo);
   const cfgOf = (bhk) => (data.configs ?? []).find((c) => c.bhk === bhk);
-  const types = [...new Set(towerUnits.map((u) => u.bhk).filter(Boolean))];
   const allUnits = towers.flatMap((t) => t.units ?? []);
   const totals = {
     total: data.availability?.total ?? allUnits.length,
@@ -58,58 +62,49 @@ export default function Inventory({ data, s, meta }) {
   const mode = modes.includes(s.unit_mode) ? s.unit_mode : 'standard';
   const isOn = (u) => sameId(u?.unit_no, tip?.unit_no) || sameId(u?.unit_no, unit?.unit_no);
   const compare = (Array.isArray(s.compare) ? s.compare : []).map((no) => lookup.get(String(no))).filter(Boolean);
+  // The presenter reveals the data; the TV is image-only until then.
+  const showDetails = level === 'unit' && !!unit && s.show_details === true;
+  const compareInPanel = showDetails && mode !== '3d';
 
-  const compareInSide = level === 'unit' && !!unit && mode !== '3d';
-  const renderCompare = (extra) => (
-    <div className={`glass-panel inv-compare ${extra}`}>
-      <div className="inv-panel-head"><Kicker>Compare units</Kicker><div className="inv-compare-badge">{compare.length}</div></div>
-      <table>
-        <thead><tr><th />{compare.slice(0, 4).map(({ unit: u }) => <th key={u.unit_no}>{u.unit_no}</th>)}</tr></thead>
-        <tbody>
-          {[
-            ['Tower', ({ tower: t }) => t.name],
-            ['Floor', ({ unit: u }) => String(u.floor)],
-            ['Type', ({ unit: u }) => u.bhk ?? '—'],
-            ['Carpet', ({ unit: u }) => areaText(u.carpet_area, mode === 'sqm' ? 'sqm' : 'standard')],
-            ['Facing', ({ unit: u }) => u.facing ?? '—'],
-            ['Status', ({ unit: u }) => STATUS_LABEL[u.status] ?? u.status],
-            ['Price', ({ unit: u }) => priceText(u.price, null)],
-          ].map(([label, fn]) => (
-            <tr key={label}><td className="inv-td-label">{label.toUpperCase()}</td>{compare.slice(0, 4).map((c) => <td key={c.unit.unit_no}>{fn(c)}</td>)}</tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+  const renderCompare = (extra) => {
+    const cols = compare.slice(0, COMPARE_COLUMNS);
+    return (
+      <div className={`glass-panel inv-compare ${extra}`}>
+        <div className="inv-panel-head"><Kicker>Compare</Kicker><div className="inv-compare-badge">{compare.length}</div></div>
+        <table>
+          <thead><tr><th />{cols.map(({ unit: u }) => <th key={u.unit_no}>{u.unit_no}</th>)}</tr></thead>
+          <tbody>
+            {[
+              ['Tower', ({ tower: t }) => t.name],
+              ['Floor', ({ unit: u }) => String(u.floor)],
+              ['Type', ({ unit: u }) => u.bhk ?? '—'],
+              ['Carpet', ({ unit: u }) => areaText(u.carpet_area, mode === 'sqm' ? 'sqm' : 'standard')],
+              ['Facing', ({ unit: u }) => u.facing ?? '—'],
+              ['Status', ({ unit: u }) => STATUS_LABEL[u.status] ?? u.status],
+              ['Price', ({ unit: u }) => priceText(u.price, null)],
+            ].map(([label, fn]) => (
+              <tr key={label}><td className="inv-td-label">{label.toUpperCase()}</td>{cols.map((c) => <td key={c.unit.unit_no}>{fn(c)}</td>)}</tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
 
-  // ---- Levels ----------------------------------------------------------------------------
+  // ---- Aerial: the render is the page; one compact card for the address and the towers ----------
 
   const projectCard = (
     <div className="glass-panel inv-project">
-      <Kicker color="var(--textFaint)">The address</Kicker>
       <div className="inv-project-name">{data.location ?? data.address ?? data.name}</div>
-      <div className="inv-project-blurb">
-        {towers.length === 1 ? 'One tower' : `${towers.length} towers`}
-        {data.description ? ` · ${data.description.split(/[.!?]/)[0].trim()}.` : '.'}
+      <div className="inv-project-count">
+        <b>{totals.total}</b> {totals.total === 1 ? 'home' : 'homes'} · <b>{totals.available}</b> available
       </div>
-      <div className="inv-stats">
-        <div><div className="inv-big">{totals.total}</div><div className="inv-tiny">UNITS TOTAL</div></div>
-        <div><div className="inv-big">{totals.available}</div><div className="inv-tiny">AVAILABLE</div></div>
-      </div>
-      <div className="inv-rule" />
-      <div className="inv-field-label">Explore towers</div>
-      <div className="inv-tower-cards">
-        {towers.map((t) => {
-          const pct = t.total ? t.available / t.total : 0;
-          return (
-            <div key={String(t.id)} className={`inv-tower-card ${sameId(t.id, s.tower_id) ? 'on' : ''}`}>
-              <div className="inv-tower-name">{t.name}</div>
-              <div className="inv-tower-units">{t.total} units</div>
-              <div className="inv-bar"><div style={{ width: `${Math.round(pct * 100)}%` }} /></div>
-              <div className="inv-tiny">{t.available} AVAILABLE</div>
-            </div>
-          );
-        })}
+      <div className="inv-tower-chips">
+        {towers.map((t) => (
+          <div key={String(t.id)} className={`inv-tower-chip ${sameId(t.id, s.tower_id) ? 'on' : ''}`}>
+            {t.name}<span>{t.available}/{t.total}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -138,6 +133,8 @@ export default function Inventory({ data, s, meta }) {
       <div className="inv-aerial-card">{projectCard}</div>
     </div>
   );
+
+  // ---- Tower: the elevation as large as the stage allows --------------------------------------
 
   const floorsDesc = useFloors(shown);
   const tower_ = elevation ? (
@@ -170,11 +167,12 @@ export default function Inventory({ data, s, meta }) {
     </div>
   );
 
+  // ---- Floor: the plate, and a slim strip of unit chips under it -------------------------------
+
   const floor = floorNo == null ? (
     <div className="inv-center"><div className="inv-hint">Choosing a floor on the tablet…</div></div>
   ) : (
     <div className="inv-floor">
-      <Kicker>{`${tower.name} · Floor ${floorNo} · ${floorUnits.length} units`}</Kicker>
       <div className="inv-floor-stage">
         {plate ? (
           <HotspotImage
@@ -199,18 +197,19 @@ export default function Inventory({ data, s, meta }) {
             : <div className="inv-center"><Icon name="layers" size="2.6rem" color="var(--textFaint)" /><div className="inv-hint">No floor plan image for this configuration.</div></div>;
         })()}
       </div>
-      <div className="inv-unit-cards">
+      <div className="inv-unit-strip">
         {floorUnits.map((u) => (
-          <div key={u.id ?? u.unit_no} className={`inv-unit-card ${isOn(u) ? 'on' : ''}`} style={{ borderColor: isOn(u) ? undefined : `${statusColor(u.status)}99` }}>
+          <div key={u.id ?? u.unit_no} className={`inv-unit-chip ${isOn(u) ? 'on' : ''}`}>
             <div className="inv-unit-dot" style={{ background: statusColor(u.status) }} />
             <div className="inv-unit-no">{u.unit_no}</div>
             <div className="inv-unit-type">{u.bhk ?? '—'}</div>
-            <div className="inv-tiny">{u.carpet_area ? `${Math.round(Number(u.carpet_area))} SQ FT` : (STATUS_LABEL[u.status] ?? '').toUpperCase()}</div>
           </div>
         ))}
       </div>
     </div>
   );
+
+  // ---- Unit: the render takes the whole stage; details slide in on request --------------------
 
   const segmented = (
     <div className="inv-seg">
@@ -218,17 +217,44 @@ export default function Inventory({ data, s, meta }) {
     </div>
   );
 
-  const details = unit ? (
-    <div className="glass-panel inv-details">
+  const detailRows = unit ? [
+    ['Unit', unit.unit_no], ['Type', unit.bhk ?? '—'], ['Status', STATUS_LABEL[unit.status] ?? unit.status],
+    ['Carpet', areaText(unit.carpet_area, mode === '3d' ? 'standard' : mode)], ['Facing', unit.facing ?? '—'], ['Indicative price', priceText(unit.price, null)],
+  ] : [];
+  const kvColor = (k) => (k === 'Status' ? statusColor(unit.status) : k === 'Indicative price' ? xc.gold : undefined);
+
+  const detailsPanel = showDetails ? (
+    <div className="glass-panel inv-details-panel">
       <Kicker color="var(--textFaint)">Flat details</Kicker>
-      <KV label="Unit" value={unit.unit_no} />
-      <KV label="Unit type" value={unit.bhk ?? '—'} />
-      <KV label="Unit status" value={(STATUS_LABEL[unit.status] ?? unit.status).toUpperCase()} color={statusColor(unit.status)} />
-      <KV label="Carpet area" value={areaText(unit.carpet_area, mode === '3d' ? 'standard' : mode)} />
-      {unit.facing ? <KV label="Facing" value={unit.facing} /> : null}
-      <KV label="Indicative price" value={priceText(unit.price, null)} color={xc.gold} />
-      {(() => { const c = cfgOf(unit.bhk); return c ? <KV label={`${c.bhk} range`} value={`${sqftRange(c.min_carpet, c.max_carpet)} sqft · ${priceText(c.min_price, c.max_price)}`} /> : null; })()}
-      {compare.some((c) => sameId(c.unit.unit_no, unit.unit_no)) ? <div className="inv-compared"><Icon name="check" /> IN COMPARE</div> : null}
+      <div>
+        {detailRows.map(([k, v]) => <KV key={k} label={k} value={k === 'Status' ? String(v).toUpperCase() : v} color={kvColor(k)} />)}
+        {compare.some((c) => sameId(c.unit.unit_no, unit.unit_no)) ? <div className="inv-compared"><Icon name="check" /> IN COMPARE</div> : null}
+      </div>
+      {compareInPanel && compare.length > 0 ? renderCompare('inv-compare-side') : (
+        <div className="inv-context">
+          <Kicker color="var(--textFaint)">{`On floor ${unit.floor}`}</Kicker>
+          {plate ? (
+            <HotspotImage
+              className="inv-context-plate"
+              src={plate.image}
+              size={plate.size}
+              idleOpacity={0.14}
+              style={{ aspectRatio: `${plate.size[0]} / ${plate.size[1]}` }}
+              hotspots={shown.filter((u) => Number(u.floor) === Number(unit.floor)).flatMap((u) => {
+                const points = plate.positions?.[String(unitPosition(u.unit_no))];
+                const me = sameId(u.unit_no, unit.unit_no);
+                return points ? [{ id: String(u.unit_no), points, color: me ? xc.gold : statusColor(u.status), selected: me }] : [];
+              })}
+            />
+          ) : (
+            <div className="inv-ctx-cells">
+              {towerUnits.filter((u) => Number(u.floor) === Number(unit.floor)).sort(byUnitNo).map((u) => (
+                <div key={u.unit_no} className={`inv-ctx-cell ${sameId(u.unit_no, unit.unit_no) ? 'on' : ''}`} style={{ background: `${statusColor(u.status)}55` }} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   ) : null;
 
@@ -243,17 +269,16 @@ export default function Inventory({ data, s, meta }) {
       <div className="inv-unit3d">
         <div className="inv-unit-top">{segmented}</div>
         <div className="inv-model"><Model3D src={unitRender.model} labels={labels} cam={s.model_cam ?? {}} /></div>
-        <div className="glass-panel inv-strip">
-          {[
-            ['Unit', unit.unit_no], ['Type', unit.bhk ?? '—'], ['Status', STATUS_LABEL[unit.status] ?? unit.status],
-            ['Carpet', areaText(unit.carpet_area, 'standard')], ['Facing', unit.facing ?? '—'], ['Indicative price', priceText(unit.price, null)],
-          ].map(([k, v]) => (
-            <div key={k} className="inv-strip-item">
-              <div className="inv-kv-label">{k.toUpperCase()}</div>
-              <div className="inv-kv-value" style={k === 'Status' ? { color: statusColor(unit.status) } : undefined}>{v}</div>
-            </div>
-          ))}
-        </div>
+        {showDetails ? (
+          <div className="glass-panel inv-strip">
+            {detailRows.map(([k, v]) => (
+              <div key={k} className="inv-strip-item">
+                <div className="inv-kv-label">{k.toUpperCase()}</div>
+                <div className="inv-kv-value" style={kvColor(k) ? { color: kvColor(k) } : undefined}>{v}</div>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
     );
   } else if (unit) {
@@ -261,106 +286,31 @@ export default function Inventory({ data, s, meta }) {
     const plan = cfgOf(unit.bhk)?.image;
     unitView = (
       <div className="inv-unit">
-        <div className="inv-unit-stage">
-          <div className="inv-unit-top">{segmented}</div>
-          <div className="inv-unit-image">
-            {img ? (
-              <HotspotImage
-                className="inv-fill"
-                src={img}
-                size={unitRender.size}
-                pins={mode === 'sqm' ? (unitRender.rooms ?? []).map((rm) => ({ x: rm.at[0], y: rm.at[1], title: rm.name, sub: `${(rm.ft[0] * 0.3048).toFixed(2)} × ${(rm.ft[1] * 0.3048).toFixed(2)} m` })) : []}
-              />
-            ) : plan ? (
-              <img className="inv-plan" src={plan} alt="" />
-            ) : (
-              <div className="inv-center"><Icon name="home" size="2.6rem" color="var(--textFaint)" /><div className="inv-hint">No render for {unit.bhk ?? 'this unit'} yet.</div></div>
-            )}
-          </div>
-        </div>
-        <div className="inv-unit-side">
-          {details}
-          {compareInSide && compare.length > 0 ? renderCompare('inv-compare-side') : (
-          <div className="inv-context">
-            <Kicker color="var(--textFaint)">{`On floor ${unit.floor}`}</Kicker>
-            {plate ? (
-              <HotspotImage
-                className="inv-context-plate"
-                src={plate.image}
-                size={plate.size}
-                idleOpacity={0.14}
-                style={{ aspectRatio: `${plate.size[0]} / ${plate.size[1]}` }}
-                hotspots={shown.filter((u) => Number(u.floor) === Number(unit.floor)).flatMap((u) => {
-                  const points = plate.positions?.[String(unitPosition(u.unit_no))];
-                  const me = sameId(u.unit_no, unit.unit_no);
-                  return points ? [{ id: String(u.unit_no), points, color: me ? xc.gold : statusColor(u.status), selected: me }] : [];
-                })}
-              />
-            ) : (
-              <div className="inv-ctx-cells">
-                {towerUnits.filter((u) => Number(u.floor) === Number(unit.floor)).sort(byUnitNo).map((u) => (
-                  <div key={u.unit_no} className={`inv-ctx-cell ${sameId(u.unit_no, unit.unit_no) ? 'on' : ''}`} style={{ background: `${statusColor(u.status)}55` }} />
-                ))}
-              </div>
-            )}
-          </div>
+        <div className="inv-unit-top">{segmented}</div>
+        <div className="inv-unit-image">
+          {img ? (
+            <HotspotImage
+              className="inv-fill"
+              src={img}
+              size={unitRender.size}
+              pins={mode === 'sqm' ? (unitRender.rooms ?? []).map((rm) => ({ x: rm.at[0], y: rm.at[1], title: rm.name, sub: `${(rm.ft[0] * 0.3048).toFixed(2)} × ${(rm.ft[1] * 0.3048).toFixed(2)} m` })) : []}
+            />
+          ) : plan ? (
+            <img className="inv-plan" src={plan} alt="" />
+          ) : (
+            <div className="inv-center"><Icon name="home" size="2.6rem" color="var(--textFaint)" /><div className="inv-hint">No render for {unit.bhk ?? 'this unit'} yet.</div></div>
           )}
         </div>
+        {detailsPanel}
       </div>
     );
   }
 
   const main = level === 'aerial' ? aerial : level === 'tower' ? tower_ : level === 'floor' ? floor : unitView;
 
-  const filters = (
-    <aside className="glass-panel inv-side">
-      <div className="inv-panel-head">
-        <Kicker color="var(--textFaint)">Filters</Kicker>
-        <div className="inv-panel-count"><div className="inv-big">{shown.length}</div><div className="inv-tiny">UNITS</div></div>
-      </div>
-      {types.length > 0 ? (
-        <div className="inv-field">
-          <div className="inv-field-label">Type</div>
-          <div className="inv-chips">
-            <div className={`inv-chip ${!cfg ? 'on' : ''}`}>All residences</div>
-            {types.map((t) => <div key={t} className={`inv-chip ${cfg === t ? 'on' : ''}`}>{t}</div>)}
-          </div>
-        </div>
-      ) : null}
-      <div className="inv-field">
-        <div className="inv-field-label">Unit status</div>
-        <div className="inv-legend">
-          {['available', 'hold', 'sold'].map((st) => (
-            <div key={st} className="inv-legend-item"><span className="inv-swatch" style={{ background: statusColor(st) }} />{STATUS_LABEL[st].toUpperCase()}</div>
-          ))}
-        </div>
-      </div>
-      {towers.length > 1 ? (
-        <div className="inv-field">
-          <div className="inv-field-label">Towers</div>
-          <div className="inv-chips">{towers.map((t) => <div key={String(t.id)} className={`inv-chip ${t === tower ? 'filled' : ''}`}>{t.name}</div>)}</div>
-        </div>
-      ) : null}
-      <div className="inv-field">
-        <div className="inv-field-label">Floor</div>
-        <div className="inv-select">{floorNo != null ? `Floor ${floorNo}` : 'All floors'}</div>
-      </div>
-      <div className="inv-field">
-        <div className="inv-field-label">{tower.name}</div>
-        <div className="inv-bar"><div style={{ width: `${Math.round((tower.total ? tower.available / tower.total : 0) * 100)}%` }} /></div>
-        <div className="inv-tiny">{tower.available} OF {tower.total} AVAILABLE</div>
-      </div>
-    </aside>
-  );
-
   return (
     <div className="inv">
-      {level === 'aerial' ? main : (
-        <div className="inv-body">
-          {filters}
-          <div className="inv-main">{main}</div>
-        </div>
-      )}
+      {level === 'aerial' ? main : <div className="inv-stage">{main}</div>}
 
       <div className="inv-crumbs">
         {data.org?.logo_url ? <img className="inv-logo" src={data.org.logo_url} alt="" /> : null}
@@ -382,7 +332,7 @@ export default function Inventory({ data, s, meta }) {
         </div>
       ) : null}
 
-      {compare.length > 0 && !compareInSide ? renderCompare('inv-compare-float') : null}
+      {compare.length > 0 && !compareInPanel ? renderCompare(`inv-compare-float ${showDetails && mode === '3d' ? 'raised' : ''}`) : null}
     </div>
   );
 }
