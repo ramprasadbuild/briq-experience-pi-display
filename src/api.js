@@ -1,30 +1,119 @@
-// The two calls this daemon makes to the backend — same contract as the (not-yet-built)
-// ExperienceDeviceController from the plan. See briq-experience-display's src/api.ts for the
-// mobile-app version of this same pairing contract; this is the Node equivalent.
-import { API_BASE_URL } from './config.js';
+// Backend calls the box makes (SHOWROOM-CONTRACT §1.3, §2.2, §5). Every call except register sends
+// `Authorization: Device <id>:<secret>` once a secret exists. Against today's preprod (legacy
+// register without a secret, heartbeat answering `{}`, manifest 404) each call degrades cleanly:
+// no auth header, `{}` treated as "nothing new", 404 surfaced as ManifestUnavailableError.
 
-export async function register(existingDeviceId) {
-  const response = await fetch(`${API_BASE_URL}/api/public/experience/devices/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ device_id: existingDeviceId }),
-  });
-  if (!response.ok) throw new Error(`register failed: HTTP ${response.status}`);
-  const json = await response.json();
-  return {
-    deviceId: json.device_id,
-    pairingCode: json.pairing_code,
-    pairingCodeExpiresAt: json.pairing_code_expires_at,
-  };
+export class HttpError extends Error {
+  constructor(message, status, body) {
+    super(message);
+    this.name = 'HttpError';
+    this.status = status;
+    this.body = body;
+  }
 }
 
-// Marks the device online for the controller's device list. Verified against the deployed
-// preprod backend to answer a bare `{}` -- it carries no pairing code, so it can't be used to
-// refresh an expiring one or to notice that an agent has claimed this device. Call register()
-// again for that; it's idempotent for a known id (same id, same code back).
-export async function heartbeat(deviceId) {
-  const response = await fetch(`${API_BASE_URL}/api/public/experience/devices/${deviceId}/heartbeat`, {
-    method: 'POST',
-  });
-  if (!response.ok) throw new Error(`heartbeat failed: HTTP ${response.status}`);
+export class ManifestUnavailableError extends HttpError {
+  constructor(status, body) {
+    super(`manifest endpoint unavailable (HTTP ${status})`, status, body);
+    this.name = 'ManifestUnavailableError';
+  }
+}
+
+async function readBody(response) {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+export class ApiClient {
+  /**
+   * @param {object} opts
+   * @param {string} opts.baseUrl
+   * @param {import('./identity.js').IdentityStore} opts.identity
+   * @param {typeof fetch} [opts.fetch]
+   * @param {number} [opts.timeoutMs]
+   */
+  constructor({ baseUrl, identity, fetch: fetchImpl = globalThis.fetch, timeoutMs = 20_000 }) {
+    this.baseUrl = baseUrl.replace(/\/+$/, '');
+    this.identity = identity;
+    this.fetch = fetchImpl;
+    this.timeoutMs = timeoutMs;
+  }
+
+  async #request(method, path, { body, auth = true, timeoutMs = this.timeoutMs } = {}) {
+    const headers = { Accept: 'application/json' };
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    const authHeader = auth ? this.identity.authHeader() : null;
+    if (authHeader) headers.Authorization = authHeader;
+    const response = await this.fetch(`${this.baseUrl}${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const parsed = await readBody(response);
+    return { status: response.status, ok: response.ok, body: parsed };
+  }
+
+  /** §1.3. Sends whatever identity we hold (both optional); stores what comes back. */
+  async register() {
+    const { device_id, device_secret } = this.identity.get();
+    const payload = {};
+    if (device_id != null) payload.device_id = device_id;
+    if (device_secret) payload.device_secret = device_secret;
+    const res = await this.#request('POST', '/api/public/experience/devices/register', { body: payload, auth: false });
+    if (!res.ok || !res.body || typeof res.body !== 'object') {
+      throw new HttpError(`register failed: HTTP ${res.status}`, res.status, res.body);
+    }
+    const json = res.body;
+    const patch = {
+      device_id: json.device_id ?? device_id,
+      pairing_code: json.pairing_code ?? null,
+      pairing_code_expires_at: json.pairing_code_expires_at ?? null,
+    };
+    if (typeof json.claimed === 'boolean') patch.claimed = json.claimed;
+    if (json.device_id != null && device_id != null && String(json.device_id) !== String(device_id)) {
+      // The backend treated us as a new device (wrong/missing secret): everything we knew is stale.
+      console.warn(`[api] register issued a new device id ${json.device_id} (was ${device_id})`);
+      Object.assign(patch, { device_secret: null, relay_key: null, name: null, claimed: json.claimed ?? false });
+    }
+    if (json.device_secret) patch.device_secret = json.device_secret;
+    await this.identity.update(patch);
+    return json;
+  }
+
+  /** §2.2. Returns the parsed response; `{}` from a legacy backend comes back as `{}`. */
+  async heartbeat(report) {
+    const id = this.identity.get().device_id;
+    const res = await this.#request('POST', `/api/public/experience/devices/${encodeURIComponent(id)}/heartbeat`, { body: report });
+    if (!res.ok) throw new HttpError(`heartbeat failed: HTTP ${res.status}`, res.status, res.body);
+    return res.body && typeof res.body === 'object' ? res.body : {};
+  }
+
+  async ackCommand(commandId, { ok, result = {} }) {
+    const id = this.identity.get().device_id;
+    const res = await this.#request(
+      'POST',
+      `/api/public/experience/devices/${encodeURIComponent(id)}/commands/${encodeURIComponent(commandId)}/ack`,
+      { body: { ok, result } },
+    );
+    if (!res.ok) throw new HttpError(`ack ${commandId} failed: HTTP ${res.status}`, res.status, res.body);
+  }
+
+  /** §5. `GET /api/experience/manifest?device_class=tv[&slug=]` with Device auth. */
+  async manifest({ slug } = {}) {
+    const qs = new URLSearchParams({ device_class: 'tv' });
+    if (slug) qs.set('slug', slug);
+    const res = await this.#request('GET', `/api/experience/manifest?${qs}`, { timeoutMs: 60_000 });
+    if (res.status === 404 || res.status === 405 || res.status === 501) throw new ManifestUnavailableError(res.status, res.body);
+    if (!res.ok) throw new HttpError(`manifest failed: HTTP ${res.status}`, res.status, res.body);
+    if (!res.body || typeof res.body !== 'object' || !Array.isArray(res.body.projects)) {
+      throw new HttpError('manifest response has no projects[]', res.status, res.body);
+    }
+    return res.body;
+  }
 }

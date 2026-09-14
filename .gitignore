@@ -1,3 +1,10 @@
 node_modules/
 device-id.txt
 *.log
+.DS_Store
+.idea/
+# Box state in dev (on the box: /var/lib/briq-display)
+data/
+data-*/
+# Built by `npm run build` / install.sh
+public/tv/
