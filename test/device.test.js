@@ -36,7 +36,7 @@ async function backend(t, { legacy = false } = {}) {
       },
       'GET /api/experience/manifest': (req, res) => {
         state.order.push('manifest');
-        if (legacy) return json(res, 404, { error: 'not found' });
+        if (legacy) return json(res, 401, { error: 'Authentication required' }); // preprod today
         if (!authOk(req)) return json(res, 401, {});
         return json(res, 200, { generated_at: 'now', device_class: 'tv', projects: state.manifestProjects });
       },
@@ -204,7 +204,7 @@ test('failed acks are persisted and retried on the next heartbeat', async (t) =>
   assert.ok(be.state.acks.some((a) => a.id === 30 && a.ok));
 });
 
-test('legacy backend: register without secret, heartbeat {} → pairing refresh via register, manifest 404 → no content', async (t) => {
+test('legacy backend: register without secret, heartbeat {} → pairing refresh via register, manifest 401 without a secret → no content', async (t) => {
   const be = await backend(t, { legacy: true });
   const { agent, identity } = await makeAgent(t, be.base, { manifestPollMs: 0 });
   await agent.tick();

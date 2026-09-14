@@ -110,6 +110,9 @@ export class ApiClient {
     if (slug) qs.set('slug', slug);
     const res = await this.#request('GET', `/api/experience/manifest?${qs}`, { timeoutMs: 60_000 });
     if (res.status === 404 || res.status === 405 || res.status === 501) throw new ManifestUnavailableError(res.status, res.body);
+    // Today's preprod answers 401 "Authentication required" to a box that has no secret to send
+    // (legacy register issues none): that is "not available to us yet", not a sync failure.
+    if ((res.status === 401 || res.status === 403) && !this.identity.authHeader()) throw new ManifestUnavailableError(res.status, res.body);
     if (!res.ok) throw new HttpError(`manifest failed: HTTP ${res.status}`, res.status, res.body);
     if (!res.body || typeof res.body !== 'object' || !Array.isArray(res.body.projects)) {
       throw new HttpError('manifest response has no projects[]', res.status, res.body);
