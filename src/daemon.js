@@ -1,85 +1,127 @@
-// Entry point. Ties together: device registration, the idle-screen server, the long-lived
-// cobrowse "device room" listener, and CDP-driven navigation. See README.md for the full picture
-// and systemd/ for how this runs unattended on the Pi.
-import { readFile, writeFile } from 'node:fs/promises';
+// Entry point for the TV box. Wires: identity + backend control loop (device.js), the content
+// store and sync agent, the single local HTTP port (TV app, content, local API, LAN relay), the
+// cloud relay bridge, and a CDP watchdog. See README.md.
 import QRCode from 'qrcode';
-import { heartbeat, register } from './api.js';
-import { navigate } from './cdp.js';
+import { ApiClient } from './api.js';
+import { Cdp } from './cdp.js';
 import { CobrowseSocket } from './cobrowse.js';
-import { DEVICE_ID_FILE, HEARTBEAT_INTERVAL_MS, WEB_APP_ORIGIN } from './config.js';
-import { startIdleServer } from './idleServer.js';
+import {
+  API_BASE_URL, APP_VERSION, CDP_PORT, DEV_RELAY_KEY, ensureDir, HEARTBEAT_INTERVAL_MS, HOST, KIOSK_UNIT,
+  LEGACY_DEVICE_ID_FILE, MANIFEST_POLL_MS, MAPBOX_TOKEN, MIN_FREE_BYTES, PORT, resolveDataDir, TV_APP_DIR, wsOrigin,
+} from './config.js';
+import { ContentStore } from './content/store.js';
+import { SyncAgent } from './content/sync.js';
+import { DeviceAgent } from './device.js';
+import { IdentityStore } from './identity.js';
+import { KioskControl } from './kiosk.js';
+import { LocalRelay } from './relay.js';
+import { LocalServer } from './server.js';
+import { lanAddresses, storage } from './sysinfo.js';
 
-async function loadDeviceId() {
-  try {
-    return (await readFile(DEVICE_ID_FILE, 'utf8')).trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-async function saveDeviceId(id) {
-  await writeFile(DEVICE_ID_FILE, id, 'utf8');
-}
-
-function isDeviceCommand(value) {
-  return !!value && typeof value === 'object' && 'cmd' in value;
-}
+const WATCHDOG_MS = Number(process.env.BRIQ_WATCHDOG_MS ?? 45_000);
 
 async function main() {
-  const idleServer = startIdleServer();
+  const dataDir = ensureDir(resolveDataDir());
+  console.log(`[daemon] v${APP_VERSION} data=${dataDir} api=${API_BASE_URL}`);
 
-  const existingId = await loadDeviceId();
-  let deviceId;
-  let pairingCode;
-  try {
-    const result = await register(existingId);
-    deviceId = result.deviceId;
-    pairingCode = result.pairingCode;
-    if (deviceId !== existingId) await saveDeviceId(deviceId);
-  } catch (err) {
-    console.error('[daemon] register failed, will keep retrying via heartbeat loop:', err.message);
-    deviceId = existingId ?? `unregistered-${Date.now()}`;
-  }
-
-  async function pushIdleInfo(code) {
-    const qrDataUri = code
-      ? await QRCode.toDataURL(JSON.stringify({ deviceId, pairingCode: code }))
-      : null;
-    idleServer.broadcast({ deviceId, pairingCode: code, qrDataUri });
-  }
-  await pushIdleInfo(pairingCode);
-
-  const deviceSocket = new CobrowseSocket(`device-${deviceId}`, 'viewer');
-  deviceSocket.onMessage((message) => {
-    if (message.t !== 'state') return;
-    const state = message.state;
-    if (!isDeviceCommand(state)) return;
-    if (state.cmd === 'load' && state.url) {
-      navigate(state.url).catch((err) => console.error('[daemon] navigate(load) failed:', err.message));
-    } else if (state.cmd === 'idle') {
-      navigate(idleServer.url).catch((err) => console.error('[daemon] navigate(idle) failed:', err.message));
-    }
+  const identity = new IdentityStore(dataDir, { legacyIdFile: LEGACY_DEVICE_ID_FILE });
+  await identity.load();
+  const store = await new ContentStore(dataDir).init();
+  const api = new ApiClient({ baseUrl: API_BASE_URL, identity });
+  const sync = new SyncAgent({
+    store, api, concurrency: 2, retries: 4, backoffMs: 2000, minFreeBytes: MIN_FREE_BYTES,
+    storage: () => storage(dataDir),
   });
-  deviceSocket.connect();
 
-  // Stay online, and keep the idle screen's pairing code current. The code has to come from
-  // register(), not heartbeat() -- see the note in api.js. register() is idempotent for a device
-  // id we already hold, so re-calling it is how a code that expired gets replaced, and how this
-  // screen learns an agent has claimed the device (the backend then stops issuing a code).
+  const relay = new LocalRelay({ getRelayKey: () => identity.get().relay_key ?? (DEV_RELAY_KEY || null) });
+  const cdp = new Cdp({ port: CDP_PORT });
+  const kiosk = new KioskControl({ cdp, unit: KIOSK_UNIT });
+
+  const device = new DeviceAgent({
+    identity, api, store, sync, kiosk, dataDir, appVersion: APP_VERSION, port: PORT,
+    lanAddresses: () => lanAddresses(), storage: () => storage(dataDir),
+    heartbeatMs: HEARTBEAT_INTERVAL_MS, manifestPollMs: MANIFEST_POLL_MS,
+  });
+
+  // QR for the idle screen, regenerated only when the code changes. Same {deviceId, pairingCode}
+  // JSON the controller's scanner already parses (app/devices/scan.tsx).
+  let qr = { key: null, dataUri: null };
+  const qrFor = async (deviceId, code) => {
+    const key = `${deviceId}:${code}`;
+    if (qr.key !== key) qr = { key, dataUri: code ? await QRCode.toDataURL(JSON.stringify({ deviceId, pairingCode: code }), { margin: 1, width: 480 }) : null };
+    return qr.dataUri;
+  };
+
+  let statusCache = { ...device.status(), qr_data_uri: null, mapbox_token: MAPBOX_TOKEN || null };
+  const server = new LocalServer({ store, relay, tvDir: TV_APP_DIR, getStatus: () => statusCache });
+
+  let statusTimer = null;
+  const pushStatus = () => {
+    if (statusTimer) return;
+    statusTimer = setTimeout(async () => {
+      statusTimer = null;
+      const s = device.status();
+      statusCache = { ...s, qr_data_uri: await qrFor(s.device_id, s.pairing_code).catch(() => null), mapbox_token: MAPBOX_TOKEN || null, relay: relay.stats() };
+      server.broadcast({ t: 'status', status: statusCache });
+    }, 250);
+  };
+  device.on('status', pushStatus);
+  sync.on('state', pushStatus);
+  sync.on('switched', (info) => server.broadcast({ t: 'content', ...info }));
+  device.on('identify', (info) => server.broadcast({ t: 'identify', ...info }));
+  device.on('relay_key', () => relay.kickPresenters());
+  device.on('unpaired', () => {
+    relay.inject({ cmd: 'idle' }, 'box');
+    server.broadcast({ t: 'content', updated: [], removed: [], projects: [] });
+  });
+
+  const port = await server.listen(PORT, HOST);
+  console.log(`[daemon] local server on http://${HOST}:${port} (TV app http://127.0.0.1:${port}/tv/, relay ws://<lan>:${port}/relay)`);
+
+  // Cloud fallback (§6.1): stay a viewer in the device room and forward everything to local viewers.
+  let cloud = null;
+  const connectCloud = () => {
+    const id = identity.get().device_id;
+    if (id == null || cloud?.sessionId === `device-${id}`) return;
+    cloud?.close();
+    cloud = new CobrowseSocket(`device-${id}`, 'viewer', { origin: wsOrigin(API_BASE_URL) });
+    cloud.onMessage((message) => {
+      if (message?.t === 'state') relay.inject(message.state, 'cloud');
+    });
+    cloud.connect();
+  };
+  device.on('status', connectCloud);
+
+  await device.start();
+  connectCloud();
+  pushStatus();
+
+  // Watchdog: the TV app keeps /local/events open. If nothing has been connected for two checks
+  // in a row, point the kiosk tab back at the app (or reload it) over CDP.
+  const localUrl = `http://127.0.0.1:${port}/tv/`;
+  let quietChecks = 0;
   setInterval(async () => {
+    quietChecks = server.eventClients.size === 0 ? quietChecks + 1 : 0;
+    if (quietChecks < 2) return;
     try {
-      await heartbeat(deviceId);
-      const result = await register(deviceId);
-      if (result.pairingCode !== pairingCode) {
-        pairingCode = result.pairingCode;
-        await pushIdleInfo(pairingCode);
-      }
-    } catch (err) {
-      console.error('[daemon] heartbeat/refresh failed:', err.message);
+      const r = await kiosk.recover(localUrl);
+      console.log(`[watchdog] TV app not connected; ${r.action}`);
+    } catch {
+      // No CDP (dev without a kiosk browser): nothing to recover.
     }
-  }, HEARTBEAT_INTERVAL_MS);
+    quietChecks = 0;
+  }, WATCHDOG_MS).unref();
 
-  console.log(`[daemon] running. device=${deviceId} idle=${idleServer.url} webAppOrigin=${WEB_APP_ORIGIN}`);
+  const shutdown = async (signal) => {
+    console.log(`[daemon] ${signal}: shutting down`);
+    device.stop();
+    sync.abort();
+    cloud?.close();
+    await server.close().catch(() => {});
+    process.exit(0);
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 main().catch((err) => {

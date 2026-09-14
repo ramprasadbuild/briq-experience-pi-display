@@ -1,34 +1,47 @@
-// Drives the already-running kiosk browser via the Chrome DevTools Protocol instead of
-// restarting it — no flicker, no re-negotiating the GPU/video decode pipeline on every
-// navigation. Requires the browser to have been launched with --remote-debugging-port
-// matching CDP_PORT (see systemd/briq-kiosk.service).
+// Chrome DevTools Protocol, kept only for reload and recovery: Chromium stays pointed at the local
+// TV app permanently (scripts/kiosk.sh), and the app switches screens itself from relay frames.
 import CDP from 'chrome-remote-interface';
-import { CDP_PORT } from './config.js';
 
-let clientPromise = null;
-
-// Reuses one CDP connection to the browser's first tab across calls; reconnects lazily if the
-// browser was restarted (e.g. after a crash the systemd unit recovered from).
-async function getClient() {
-  if (clientPromise) {
-    try {
-      const client = await clientPromise;
-      // A dead connection throws on any protocol call; cheap way to check liveness.
-      await client.Runtime.evaluate({ expression: '1' });
-      return client;
-    } catch {
-      clientPromise = null;
-    }
-  }
-  clientPromise = CDP({ port: CDP_PORT }).then(async (client) => {
-    await client.Page.enable();
-    return client;
-  });
-  return clientPromise;
+function withTimeout(promise, ms, what) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms}ms`)), ms); }),
+  ]).finally(() => clearTimeout(timer));
 }
 
-export async function navigate(url) {
-  const client = await getClient();
-  await client.Page.navigate({ url });
-  console.log(`[cdp] navigated to ${url}`);
+export class Cdp {
+  constructor({ port, host = '127.0.0.1', timeoutMs = 5000 }) {
+    this.port = port;
+    this.host = host;
+    this.timeoutMs = timeoutMs;
+  }
+
+  async #withPage(fn) {
+    const targets = await withTimeout(CDP.List({ port: this.port, host: this.host }), this.timeoutMs, 'CDP list');
+    const page = targets.find((t) => t.type === 'page');
+    if (!page) throw new Error('no page target');
+    const client = await withTimeout(CDP({ port: this.port, host: this.host, target: page }), this.timeoutMs, 'CDP connect');
+    try {
+      return await withTimeout(fn(client, page), this.timeoutMs, 'CDP call');
+    } finally {
+      await client.close().catch(() => {});
+    }
+  }
+
+  async currentUrl() {
+    const targets = await withTimeout(CDP.List({ port: this.port, host: this.host }), this.timeoutMs, 'CDP list');
+    return targets.find((t) => t.type === 'page')?.url ?? null;
+  }
+
+  reload() {
+    return this.#withPage((client) => client.Page.reload({ ignoreCache: true }));
+  }
+
+  navigate(url) {
+    return this.#withPage(async (client) => {
+      await client.Page.enable();
+      await client.Page.navigate({ url });
+    });
+  }
 }
