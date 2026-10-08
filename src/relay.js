@@ -3,11 +3,16 @@
 //   ?role=presenter&key=<relay_key>  a tablet on the LAN. Wrong/missing key → close 4401.
 //   ?role=viewer                     the TV page on this box. Only from loopback → else 4403.
 //
-// Frames are `{t:'state', state}`. The relay remembers the last command (`present`/`idle`) and
-// the last kiosk state and replays them to a viewer that joins, so a Chromium reload lands on the
-// right screen. The cloud bridge feeds the same pipe through `inject()`.
+// Frames:
+//   presenter → relay → viewers   {t:'state', state}     a §6.2 command or §6.3 kiosk state
+//   relay → presenters            {t:'presence', presenter, viewers}   on every join/leave
+//
+// The relay remembers the last command (`present`/`idle`) and the last kiosk state and replays
+// them to a viewer that joins, so a Chromium reload lands on the right screen. The cloud bridge
+// (daemon.js) feeds the same pipe through `inject()`.
 import { WebSocketServer } from 'ws';
 import { isLoopbackAddress } from './sysinfo.js';
+import { sendToAll } from './wsutil.js';
 
 export const CLOSE_BAD_KEY = 4401;
 export const CLOSE_NOT_LOCAL = 4403;
@@ -28,7 +33,7 @@ export class LocalRelay {
     this.presenters = new Set();
     this.lastCommand = null;
     this.lastState = null;
-    this.listeners = new Set();
+    this.cloudMuted = false; // true while cloud frames are being dropped (logged once per stretch)
     this.wss.on('connection', (ws, req, role) => this.#onConnection(ws, req, role));
   }
 
@@ -76,6 +81,7 @@ export class LocalRelay {
     this.#presence();
   }
 
+  /** A presenter frame. Anything that isn't `{t:'state', state}` JSON is ignored. */
   #fromPresenter(buf) {
     let message;
     try {
@@ -105,16 +111,10 @@ export class LocalRelay {
     } else {
       this.lastState = state;
     }
-    const frame = JSON.stringify({ t: 'state', state });
-    for (const ws of this.viewers) if (ws.readyState === ws.OPEN) ws.send(frame);
-    for (const fn of this.listeners) fn(state, source);
+    sendToAll(this.viewers, { t: 'state', state });
   }
 
-  onState(fn) {
-    this.listeners.add(fn);
-    return () => this.listeners.delete(fn);
-  }
-
+  /** What a joining viewer is sent first: the last command, then the last kiosk state (if any). */
   replayFrames() {
     const frames = [];
     if (this.lastCommand) frames.push(JSON.stringify({ t: 'state', state: this.lastCommand }));
@@ -122,9 +122,9 @@ export class LocalRelay {
     return frames;
   }
 
+  /** Tells presenters whether a TV is actually watching (the tablet shows "TV connected"). */
   #presence() {
-    const frame = JSON.stringify({ t: 'presence', presenter: this.presenters.size > 0, viewers: this.viewers.size });
-    for (const ws of this.presenters) if (ws.readyState === ws.OPEN) ws.send(frame);
+    sendToAll(this.presenters, { t: 'presence', presenter: this.presenters.size > 0, viewers: this.viewers.size });
   }
 
   /** Relay key rotated/cleared (claim, unpair): drop presenters holding the old key. */

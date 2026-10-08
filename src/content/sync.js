@@ -63,12 +63,46 @@ export function planSync(current, manifest, hasFile) {
   return { keep, update, remove, downloads, totalBytes };
 }
 
+/**
+ * The local manifest written for one project: the server's payload with every file key replaced
+ * by its /content/files/… path, plus the file list as the TV app and GC see it.
+ */
+export function buildLocalManifest(project, files, generatedAt) {
+  const keyToPath = new Map();
+  for (const f of files) if (f.key != null) keyToPath.set(f.key, `${CONTENT_URL_PREFIX}${f.name}`);
+  return {
+    slug: project.slug,
+    project_id: project.project_id ?? null,
+    version: project.version ?? null,
+    etag: project.etag ?? null,
+    generated_at: generatedAt,
+    synced_at: new Date().toISOString(),
+    total_bytes: project.total_bytes ?? null,
+    payload: rewritePayload(project.payload ?? {}, keyToPath),
+    files: files.map((f) => ({
+      key: f.key, name: f.name, path: `${CONTENT_URL_PREFIX}${f.name}`, kind: f.kind ?? null,
+      variant: f.variant ?? null, mime: f.mime ?? null, bytes: f.bytes ?? null, sha256: normalizeSha(f.sha256),
+    })),
+  };
+}
+
+/** The current.json entry for a written local manifest (`rel` = its path relative to the store root). */
+function currentEntryFor(local, rel) {
+  const { payload } = local;
+  return {
+    slug: local.slug, project_id: local.project_id, version: local.version, etag: local.etag,
+    name: payload?.name ?? local.slug, hero_image: payload?.hero_image ?? payload?.gallery?.[0] ?? null,
+    total_bytes: local.total_bytes, synced_at: local.synced_at, manifest: rel,
+  };
+}
+
 const sleep = (ms, signal) => new Promise((resolve, reject) => {
   if (ms <= 0) return resolve();
   const t = setTimeout(resolve, ms);
   signal?.addEventListener('abort', () => { clearTimeout(t); reject(signal.reason ?? new Error('aborted')); }, { once: true });
 });
 
+/** Runs `worker` over `items` with at most `concurrency` in flight. */
 async function runPool(items, concurrency, worker) {
   const queue = [...items];
   const runners = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
@@ -163,85 +197,21 @@ export class SyncAgent extends EventEmitter {
     }
   }
 
-  /** Applies a manifest that has already been fetched (also used by tests and prefill). */
+  /**
+   * Applies a manifest that has already been fetched (also used by tests and prefill):
+   * plan → free-space check → downloads → local manifests → atomic switch + GC.
+   */
   async apply(manifest, { signal } = {}) {
     const store = this.store;
-    const present = new Map();
-    const hasFileCache = async (name, bytes) => {
-      const key = `${name}:${bytes ?? ''}`;
-      if (!present.has(key)) present.set(key, await store.hasFile(name, bytes));
-      return present.get(key);
-    };
-    // planSync is synchronous; resolve the file checks up front.
-    for (const project of manifest.projects ?? []) {
-      for (const f of project.files ?? []) await hasFileCache(localNameFor(f), f.bytes ?? null);
-    }
-    const plan = planSync(store.current, manifest, (name, bytes) => present.get(`${name}:${bytes ?? ''}`));
+    const hasFile = await this.#presentFiles(manifest);
+    const plan = planSync(store.current, manifest, hasFile);
     this.log.info?.(`[sync] plan: keep=${plan.keep.length} update=${plan.update.length} remove=${plan.remove.length} downloads=${plan.downloads.size} (${plan.totalBytes} bytes)`);
 
-    // Free space: what's left to download (minus partial bytes already on disk) plus a reserve.
-    let partialBytes = 0;
-    for (const name of plan.downloads.keys()) {
-      try {
-        partialBytes += (await stat(store.partPath(name))).size;
-      } catch {
-        // no part
-      }
-    }
-    const needBytes = Math.max(0, plan.totalBytes - partialBytes);
-    const { free_bytes: freeBytes } = await this.storage();
-    if (freeBytes != null && plan.downloads.size > 0 && needBytes + this.minFreeBytes > freeBytes) {
-      throw new InsufficientSpaceError(needBytes + this.minFreeBytes, freeBytes);
-    }
+    const partialBytes = await this.#checkFreeSpace(plan);
+    const failed = await this.#downloadAll(plan, partialBytes, signal);
 
-    // Downloads.
-    const failed = new Map();
-    const totalBytes = plan.totalBytes;
-    const totalFiles = plan.downloads.size;
-    let doneBytes = partialBytes;
-    let doneFiles = 0;
-    let lastEmit = 0;
-    const progress = (force = false) => {
-      const p = totalBytes > 0 ? Math.min(1, doneBytes / totalBytes) : totalFiles > 0 ? doneFiles / totalFiles : 1;
-      const now = Date.now();
-      if (force || now - lastEmit > 500) {
-        lastEmit = now;
-        this.#setState({ progress: Math.round(p * 1000) / 1000 });
-      }
-    };
-    await runPool([...plan.downloads.values()], this.concurrency, async (file) => {
-      for (let attempt = 1; ; attempt++) {
-        if (signal?.aborted) throw signal.reason;
-        let written = 0;
-        try {
-          await downloadFile({
-            url: file.url ?? file.key,
-            partPath: store.partPath(file.name),
-            finalPath: store.filePath(file.name),
-            bytes: file.bytes ?? null,
-            sha256: normalizeSha(file.sha256),
-            fetch: this.fetch,
-            signal,
-            onBytes: (n) => { written += n; doneBytes += n; progress(); },
-          });
-          doneFiles++;
-          progress(true);
-          return;
-        } catch (err) {
-          if (signal?.aborted) throw err;
-          if (err.name === 'IntegrityError') doneBytes -= written; // those bytes were thrown away
-          const retryable = err instanceof DownloadError ? err.retryable : true;
-          this.log.warn?.(`[sync] ${file.name} attempt ${attempt}/${this.retries} failed: ${err.message}`);
-          if (!retryable || attempt >= this.retries) {
-            failed.set(file.name, err.message);
-            return;
-          }
-          await sleep(this.backoffMs * 2 ** (attempt - 1), signal);
-        }
-      }
-    });
-
-    // Build local manifests for projects whose files are all present.
+    // Build local manifests for projects whose files are all present; a project with a failed
+    // file keeps its previous live version (if it had one).
     const nextProjects = {};
     for (const slug of plan.keep) nextProjects[slug] = store.current.projects[slug];
     const updated = [];
@@ -253,29 +223,9 @@ export class SyncAgent extends EventEmitter {
         if (store.current.projects[project.slug]) nextProjects[project.slug] = store.current.projects[project.slug];
         continue;
       }
-      const keyToPath = new Map();
-      for (const f of files) if (f.key != null) keyToPath.set(f.key, `${CONTENT_URL_PREFIX}${f.name}`);
-      const payload = rewritePayload(project.payload ?? {}, keyToPath);
-      const local = {
-        slug: project.slug,
-        project_id: project.project_id ?? null,
-        version: project.version ?? null,
-        etag: project.etag ?? null,
-        generated_at: manifest.generated_at ?? null,
-        synced_at: new Date().toISOString(),
-        total_bytes: project.total_bytes ?? null,
-        payload,
-        files: files.map((f) => ({
-          key: f.key, name: f.name, path: `${CONTENT_URL_PREFIX}${f.name}`, kind: f.kind ?? null,
-          variant: f.variant ?? null, mime: f.mime ?? null, bytes: f.bytes ?? null, sha256: normalizeSha(f.sha256),
-        })),
-      };
+      const local = buildLocalManifest(project, files, manifest.generated_at ?? null);
       const rel = await store.writeProjectManifest(local);
-      nextProjects[project.slug] = {
-        slug: project.slug, project_id: local.project_id, version: local.version, etag: local.etag,
-        name: payload?.name ?? project.slug, hero_image: payload?.hero_image ?? payload?.gallery?.[0] ?? null,
-        total_bytes: local.total_bytes, synced_at: local.synced_at, manifest: rel,
-      };
+      nextProjects[project.slug] = currentEntryFor(local, rel);
       updated.push(project.slug);
     }
 
@@ -299,5 +249,98 @@ export class SyncAgent extends EventEmitter {
       error: ok ? null : `${failedProjects.length} project(s) failed: ${failedProjects.map((f) => `${f.slug}: ${f.error}`).join('; ')}`,
       content: store.contentMap(),
     };
+  }
+
+  /**
+   * planSync is synchronous, so every "is this file already complete on disk?" check is resolved
+   * up front. Returns a sync lookup with the same signature planSync expects.
+   */
+  async #presentFiles(manifest) {
+    const present = new Map();
+    const keyOf = (name, bytes) => `${name}:${bytes ?? ''}`;
+    for (const project of manifest.projects ?? []) {
+      for (const f of project.files ?? []) {
+        const name = localNameFor(f);
+        const key = keyOf(name, f.bytes ?? null);
+        if (!present.has(key)) present.set(key, await this.store.hasFile(name, f.bytes ?? null));
+      }
+    }
+    return (name, bytes) => present.get(keyOf(name, bytes));
+  }
+
+  /**
+   * Free space: what's left to download (minus partial bytes already on disk) plus a reserve.
+   * Throws InsufficientSpaceError before anything is downloaded. Returns the partial byte count,
+   * which the progress meter starts from.
+   */
+  async #checkFreeSpace(plan) {
+    let partialBytes = 0;
+    for (const name of plan.downloads.keys()) {
+      try {
+        partialBytes += (await stat(this.store.partPath(name))).size;
+      } catch {
+        // no part
+      }
+    }
+    const needBytes = Math.max(0, plan.totalBytes - partialBytes);
+    const { free_bytes: freeBytes } = await this.storage();
+    if (freeBytes != null && plan.downloads.size > 0 && needBytes + this.minFreeBytes > freeBytes) {
+      throw new InsufficientSpaceError(needBytes + this.minFreeBytes, freeBytes);
+    }
+    return partialBytes;
+  }
+
+  /**
+   * Downloads every planned file (`concurrency` at a time, each with retries + backoff), emitting
+   * progress as bytes land. Returns `Map<name, error message>` of the files that gave up.
+   */
+  async #downloadAll(plan, partialBytes, signal) {
+    const failed = new Map();
+    const totalBytes = plan.totalBytes;
+    const totalFiles = plan.downloads.size;
+    let doneBytes = partialBytes;
+    let doneFiles = 0;
+    let lastEmit = 0;
+    // Progress by bytes when the manifest knows sizes, by file count otherwise; throttled to 2/s.
+    const progress = (force = false) => {
+      const p = totalBytes > 0 ? Math.min(1, doneBytes / totalBytes) : totalFiles > 0 ? doneFiles / totalFiles : 1;
+      const now = Date.now();
+      if (force || now - lastEmit > 500) {
+        lastEmit = now;
+        this.#setState({ progress: Math.round(p * 1000) / 1000 });
+      }
+    };
+    await runPool([...plan.downloads.values()], this.concurrency, async (file) => {
+      for (let attempt = 1; ; attempt++) {
+        if (signal?.aborted) throw signal.reason;
+        let written = 0;
+        try {
+          await downloadFile({
+            url: file.url ?? file.key, // `key` is the original URL when the manifest sends no signed `url`
+            partPath: this.store.partPath(file.name),
+            finalPath: this.store.filePath(file.name),
+            bytes: file.bytes ?? null,
+            sha256: normalizeSha(file.sha256),
+            fetch: this.fetch,
+            signal,
+            onBytes: (n) => { written += n; doneBytes += n; progress(); },
+          });
+          doneFiles++;
+          progress(true);
+          return;
+        } catch (err) {
+          if (signal?.aborted) throw err;
+          if (err.name === 'IntegrityError') doneBytes -= written; // those bytes were thrown away
+          const retryable = err instanceof DownloadError ? err.retryable : true;
+          this.log.warn?.(`[sync] ${file.name} attempt ${attempt}/${this.retries} failed: ${err.message}`);
+          if (!retryable || attempt >= this.retries) {
+            failed.set(file.name, err.message);
+            return;
+          }
+          await sleep(this.backoffMs * 2 ** (attempt - 1), signal);
+        }
+      }
+    });
+    return failed;
   }
 }

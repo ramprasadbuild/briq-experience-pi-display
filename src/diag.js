@@ -8,7 +8,7 @@
 //   node src/diag.js --cloud <deviceId> present <slug>         # via the cloud /ws/cobrowse room
 import { parseArgs } from 'node:util';
 import WebSocket from 'ws';
-import { CobrowseSocket } from './cobrowse.js';
+import { CobrowseSocket, deviceRoom } from './cobrowse.js';
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -25,7 +25,7 @@ else {
 }
 
 if (values.cloud) {
-  const socket = new CobrowseSocket(`device-${values.cloud}`, 'presenter');
+  const socket = new CobrowseSocket(deviceRoom(values.cloud), 'presenter');
   socket.connect();
   const timer = setInterval(() => {
     if (socket.send(state)) {

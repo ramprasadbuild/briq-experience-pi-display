@@ -2,7 +2,7 @@
 // that the box must remember to keep working offline (name, relay key, claimed, the client's org
 // branding). Stored as one JSON file with mode 0600 and written atomically (tmp + rename) so a
 // power cut can't truncate it.
-import { chmod, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const EMPTY = {
@@ -77,11 +77,6 @@ export class IdentityStore {
   async wipeSecret() {
     this.value = { ...EMPTY, device_id: this.value.device_id };
     await this.save();
-  }
-
-  async remove() {
-    this.value = { ...EMPTY };
-    await rm(this.file, { force: true });
   }
 
   /** `Authorization: Device <id>:<secret>`, or null while the backend hasn't issued a secret. */

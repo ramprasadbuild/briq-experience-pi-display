@@ -1,6 +1,9 @@
-/** The six kiosk chapters — a port of the controller's src/chapters.ts. */
+// The six kiosk chapters — a port of the controller's src/chapters.ts. `enabled` is what the Home
+// screen greys out; `image` feeds the orb.
+import { heroImage } from './project.js';
+
 export const walkthroughScene = (d) => (d.scenes ?? []).find((s) => s.type === 'walkthrough' && (s.nodes?.length ?? 0) > 0);
-const firstImage = (d, ...urls) => urls.find(Boolean) ?? d.hero_image ?? d.gallery?.[0];
+const firstImage = (d, ...urls) => urls.find(Boolean) ?? heroImage(d);
 
 export function buildChapters(d) {
   const gallery = d.gallery ?? [];

@@ -480,6 +480,59 @@ part of the contract.
   command and state to the new TV. A refreshed device list for the same TV re-probes the LAN as
   soon as a relay key or address appears, without dropping a working link.
 
+## 8c. Amendment 4 — several floor plans per tower (2026-09-19)
+
+`floor_plates[tower_id]` may carry `plans`, so a tower whose floors differ (lower floors, upper
+floors, penthouse) can have one plate per group of floors:
+```json
+"floor_plates": { "14": { "image": "…", "size": [w,h], "positions": { "1": […] },
+  "plans": [ { "name": "Floors 1–5", "floors": [1,5],  "image": "…", "size": [w,h], "positions": { "1": […], "2": […] } },
+             { "name": "Penthouse",  "floors": [11,11], "image": "…", "size": [w,h], "positions": { "1": […] } } ] } }
+```
+- `floors` = [from, to], inclusive; absent/null = every floor. The first plan whose range covers the
+  floor is shown; a floor no plan covers falls back to the flat type's plan image.
+- The bare `{image, size, positions}` stays valid (one plan for every floor) and is what the CRM still
+  writes when a tower has a single all-floors plan. With `plans`, the bare fields repeat the first
+  plan so older readers keep working (they show that plan on every floor).
+- Shapes are still keyed by position (last two digits of `unit_no`). The CRM editor has the builder
+  pick the flat from Inventory for each shape and stores that flat's position, so every shape
+  takes the availability colour (available / hold / sold) of the flat at that position on the floor shown.
+
+## 8d. Amendment 5 — Location chapter data, authored in the CRM (2026-09-20)
+
+Everything the tablet's Location chapter shows is authored in the CRM's **Map & places** editor and
+saved through the ordinary project update; a save bumps `content_version`, so tablets and TV boxes
+pick it up on their next sync. Nothing is uploaded or published separately.
+
+- `projects.lat`, `projects.lng` — the project pin.
+- `projects.vicinity[]` — the places around it. Each place:
+```json
+{ "id": "pl_k3j2h1", "name": "Cyber Towers, HITEC City", "category": "work",
+  "lat": 17.4503644, "lng": 78.3810472, "distance": "2.5 km · 11 min",
+  "status": "upcoming", "eta": "2027", "by": "Telangana Govt",
+  "route": { "km": 2.45, "min": 11, "mode": "car", "line": "<polyline6>",
+             "from": "17.46060,78.36470", "to": "17.45036,78.38105" } }
+```
+  `id` is stable so saved days can refer to a place. `route` is the road from the pin to the place,
+  measured once in the CRM (Mapbox Directions, simplified polyline6): the tablet draws it as is and
+  only calls Mapbox when it is absent or stale — `from` / `to` are the pin and place positions
+  (lat,lng at 5 decimals) it was measured between, and a road whose `from` / `to` no longer match is
+  ignored. `status` / `eta` / `by` apply to places not built yet. Categories: `work`, `education`,
+  `healthcare`, `transit`, `shopping`, `leisure`, `dining`, `fitness`, `landmark`, `infrastructure`.
+- `projects.map_config jsonb` (nullable; null = all defaults), returned in the public payload:
+```json
+{ "nearby": true,
+  "life": { "enabled": true, "hidden_personas": ["nri"],
+            "personas": { "family": { "stops": [
+              { "activity": "school", "time": "07:45", "place": "pl_k3j2h1" },
+              { "activity": "groceries", "time": "10:30", "place": null } ] } } } }
+```
+  `life.enabled: false` hides "A life from here". `hidden_personas` removes lives from the picker.
+  `personas.<id>.stops` replaces that life's automatic day; `place: null` means "nearest to the
+  pin". Activities: `school coffee work dining gym groceries family health transit`; personas:
+  `anyone family founder investor nri`. A stop whose place id no longer exists falls back to the
+  nearest place of that activity's category.
+
 ## 9. Sizes to plan for (per project, 5 min of 4K film)
 
 | | Tablet | TV box |

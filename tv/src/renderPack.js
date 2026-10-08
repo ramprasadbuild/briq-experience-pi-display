@@ -67,6 +67,21 @@ function demoPack(data) {
   };
 }
 
+/**
+ * The floor plan that applies to `floor` of a tower: `plans` (each for `floors` = [from, to]) when
+ * the pack has them, else the tower's bare {image, size, positions} plate, which covers every floor.
+ * With no floor chosen yet, the first plan. Null when nothing covers the floor.
+ */
+export function floorPlateFor(pack, towerId, floor) {
+  const sec = pack?.floor_plates?.[String(towerId)];
+  if (!sec) return null;
+  const plans = Array.isArray(sec.plans) && sec.plans.length ? sec.plans : [{ ...sec, floors: null }];
+  const usable = plans.filter((p) => p?.image);
+  if (floor == null) return usable[0] ?? null;
+  const f = Number(floor);
+  return usable.find((p) => !p.floors || (f >= p.floors[0] && f <= p.floors[1])) ?? null;
+}
+
 export function resolveRenderPack(data) {
   const rp = data?.render_pack;
   if (rp && typeof rp === 'object') {

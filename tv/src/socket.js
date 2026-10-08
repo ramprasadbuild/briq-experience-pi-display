@@ -1,3 +1,7 @@
+// Browser-side WebSocket to the daemon on this box (same origin as the page). Reconnects with
+// backoff — 0.5 s doubling to 5 s — because the daemon restarts on updates and the TV app must
+// come back on its own.
+
 /** A WebSocket that reconnects with backoff. Returns a close function. */
 export function openSocket(url, { onMessage, onOpen, onClose }) {
   let ws = null;

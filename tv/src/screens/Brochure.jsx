@@ -1,7 +1,7 @@
 import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { clamp } from '../tokens.js';
+import { clamp } from '../format.js';
 import { ChapterHead, Counter, Empty, Loading } from '../ui/Chrome.jsx';
 import './Brochure.css';
 

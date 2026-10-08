@@ -76,7 +76,7 @@ log "Config"
 if [ ! -f /etc/default/briq-display ]; then
   cat > /etc/default/briq-display <<CONF
 # BriQ TV box daemon. See README.md.
-API_BASE_URL=${API:-https://briq-crm-app-preprod-hiw6sglj2q-ue.a.run.app}
+API_BASE_URL=${API:-https://briq-crm-app-preprod-1064637450777.us-east1.run.app}
 BRIQ_PORT=8787
 MAPBOX_TOKEN=${MAPBOX}
 CONF

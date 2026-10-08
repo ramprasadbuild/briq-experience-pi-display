@@ -8,7 +8,25 @@ import { join } from 'node:path';
 import { HttpError } from './api.js';
 import { orgBranding } from './identity.js';
 
+/** After a failed sync, don't retry the same set of etags on every heartbeat; wait this long. */
 const RETRY_SAME_TARGET_MS = 5 * 60_000;
+/** Command ids remembered for de-duplication (the backend re-sends until acked). */
+const HANDLED_IDS_KEPT = 200;
+
+/**
+ * What a contract heartbeat response changes in the stored identity. Only keys the backend sent
+ * are patched, so a partial response never wipes what the box already knows.
+ */
+export function identityPatchFrom(res) {
+  const patch = {};
+  if (typeof res.claimed === 'boolean') patch.claimed = res.claimed;
+  if ('pairing_code' in res) patch.pairing_code = res.pairing_code ?? null;
+  if ('pairing_code_expires_at' in res) patch.pairing_code_expires_at = res.pairing_code_expires_at ?? null;
+  if ('name' in res) patch.name = res.name ?? null;
+  if ('org' in res) patch.org = orgBranding(res.org);
+  if ('relay_key' in res) patch.relay_key = res.relay_key ?? null;
+  return patch;
+}
 
 export class DeviceAgent extends EventEmitter {
   /**
@@ -27,18 +45,22 @@ export class DeviceAgent extends EventEmitter {
     super();
     Object.assign(this, { identity, api, store, sync, kiosk, appVersion, port, lanAddresses, storage, heartbeatMs, manifestPollMs, rebootDelayMs, log });
     this.commandsFile = join(dataDir, 'commands.json');
-    this.handled = [];
-    this.pendingAcks = [];
+    this.handled = []; // command ids already queued/run (persisted)
+    this.pendingAcks = []; // acks not yet accepted by the backend (persisted, sent in order)
     this.online = false;
     this.legacy = false;
+    this.registeredOnce = false; // set once register succeeded in this process
     this.lastHeartbeatAt = null;
     this.lastError = null;
     this.lastManifestPollAt = 0;
-    this.failedTarget = null;
-    this.commandChain = Promise.resolve();
+    this.failedTarget = null; // { key, at } of the last etag set a sync failed for
+    this.commandChain = Promise.resolve(); // commands run one at a time, in arrival order
     this.timer = null;
     this.stopped = false;
-    this.ticking = null;
+    this.ticking = null; // the in-flight tick, so overlapping callers share it
+    this.flushing = null; // the in-flight ack flush
+    this.flushAgain = false;
+    this.saveChain = Promise.resolve(); // serialises command-log writes
   }
 
   async start() {
@@ -111,6 +133,7 @@ export class DeviceAgent extends EventEmitter {
   }
 
   async handleHeartbeatResponse(res) {
+    // A contract backend always sends at least one of these; a legacy one answers `{}`.
     const isContract = res && typeof res === 'object' && ('claimed' in res || 'commands' in res || 'projects' in res);
     this.legacy = !isContract;
     if (!isContract) {
@@ -127,21 +150,21 @@ export class DeviceAgent extends EventEmitter {
       return;
     }
 
-    const patch = {};
-    if (typeof res.claimed === 'boolean') patch.claimed = res.claimed;
-    if ('pairing_code' in res) patch.pairing_code = res.pairing_code ?? null;
-    if ('pairing_code_expires_at' in res) patch.pairing_code_expires_at = res.pairing_code_expires_at ?? null;
-    if ('name' in res) patch.name = res.name ?? null;
-    if ('org' in res) patch.org = orgBranding(res.org);
-    if ('relay_key' in res) patch.relay_key = res.relay_key ?? null;
     const before = this.identity.get().relay_key;
-    await this.identity.update(patch);
+    await this.identity.update(identityPatchFrom(res));
+    // A rotated/cleared key must drop presenters holding the old one (daemon.js → relay.kickPresenters).
     if ('relay_key' in res && before !== (res.relay_key ?? null)) this.emit('relay_key', res.relay_key ?? null);
 
     if (Array.isArray(res.projects)) this.#maybeSync(res.projects);
     if (Array.isArray(res.commands) && res.commands.length) this.processCommands(res.commands);
   }
 
+  /**
+   * Heartbeat `projects` is the backend's view of what this box should hold, as {slug, etag}. A
+   * sync is started when that differs from the live content by set or by etag — unless one is
+   * already running, or the very same target failed less than RETRY_SAME_TARGET_MS ago (the
+   * backend keeps repeating it every 30 s and we'd otherwise hammer a broken CDN).
+   */
   #maybeSync(projects) {
     const content = this.store.contentMap();
     const wanted = new Map(projects.filter((p) => p?.slug).map((p) => [p.slug, p.etag ?? null]));
@@ -164,7 +187,7 @@ export class DeviceAgent extends EventEmitter {
     for (const command of commands) {
       if (command?.id == null || this.handled.includes(command.id)) continue;
       this.handled.push(command.id);
-      if (this.handled.length > 200) this.handled.splice(0, this.handled.length - 200);
+      if (this.handled.length > HANDLED_IDS_KEPT) this.handled.splice(0, this.handled.length - HANDLED_IDS_KEPT);
       this.commandChain = this.commandChain.then(() => this.#run(command)).catch((err) => {
         this.log.error?.(`[device] command ${command.id} crashed: ${err.stack ?? err}`);
       });
@@ -198,29 +221,31 @@ export class DeviceAgent extends EventEmitter {
         this.emit('identify', { name: this.identity.get().name, device_id: this.identity.get().device_id, seconds });
         return this.ack(id, true, { seconds });
       }
-      case 'unpair': {
-        // Ack while the secret still authenticates, then wipe.
-        await this.ack(id, true, {});
-        await this.flushAcks();
-        this.sync.abort();
-        await this.sync.running?.catch(() => {});
-        await this.store.wipe();
-        await this.identity.wipeSecret();
-        this.registeredOnce = false;
-        this.emit('unpaired');
-        this.emit('relay_key', null);
-        try {
-          await this.api.register();
-          this.registeredOnce = true;
-        } catch (err) {
-          this.log.warn?.(`[device] re-register after unpair failed: ${err.message}`);
-        }
-        this.emit('status');
-        return undefined;
-      }
+      case 'unpair':
+        return this.#unpair(id);
       default:
         return this.ack(id, false, { error: 'unknown_command', command: name });
     }
+  }
+
+  /** `unpair`: ack while the secret still authenticates, wipe content + secret, then register anew. */
+  async #unpair(commandId) {
+    await this.ack(commandId, true, {});
+    await this.flushAcks();
+    this.sync.abort();
+    await this.sync.running?.catch(() => {});
+    await this.store.wipe();
+    await this.identity.wipeSecret();
+    this.registeredOnce = false;
+    this.emit('unpaired');
+    this.emit('relay_key', null);
+    try {
+      await this.api.register();
+      this.registeredOnce = true;
+    } catch (err) {
+      this.log.warn?.(`[device] re-register after unpair failed: ${err.message}`);
+    }
+    this.emit('status');
   }
 
   async ack(commandId, ok, result = {}) {
@@ -250,6 +275,8 @@ export class DeviceAgent extends EventEmitter {
       try {
         await this.api.ackCommand(next.id, { ok: next.ok, result: next.result });
       } catch (err) {
+        // A definitive 4xx (unknown command, bad payload) will never succeed: drop it. Auth,
+        // timeout and rate-limit answers, and anything network/5xx, keep the ack for the next tick.
         if (err instanceof HttpError && err.status >= 400 && err.status < 500 && err.status !== 401 && err.status !== 408 && err.status !== 429) {
           this.log.warn?.(`[device] dropping ack ${next.id}: ${err.message}`);
         } else {
@@ -274,7 +301,7 @@ export class DeviceAgent extends EventEmitter {
 
   /** Serialised: concurrent acks must not race on the tmp file. */
   #saveCommandLog() {
-    this.saveChain = (this.saveChain ?? Promise.resolve()).then(async () => {
+    this.saveChain = this.saveChain.then(async () => {
       const tmp = `${this.commandsFile}.tmp`;
       await writeFile(tmp, JSON.stringify({ handled: this.handled, pending_acks: this.pendingAcks }));
       await rename(tmp, this.commandsFile);

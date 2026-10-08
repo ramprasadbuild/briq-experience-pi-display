@@ -1,5 +1,6 @@
 import { lazy, Suspense, useMemo, useState } from 'react';
-import { haversineKm, kmText, vcat, xc } from '../tokens.js';
+import { haversineKm, kmText } from '../format.js';
+import { vcat, xc } from '../tokens.js';
 import { ChapterHead, Empty, Kicker, Pill } from '../ui/Chrome.jsx';
 import './Location.css';
 
@@ -31,7 +32,10 @@ export default function Location({ data, s, meta, status }) {
 
   const poi = s.poi == null ? null : Number(s.poi);
   const focus = poi != null ? places[poi] ?? null : null;
-  const live = !!status?.mapbox_token && !!status?.online && navigator.onLine && !mapFailed;
+  // The live map needs the token and the internet — not the CRM backend. `status.online` is the box's
+  // check-in with the backend; when that is down (or being moved) the TV still has internet and must
+  // still show the real map. If Mapbox itself can't load, `mapFailed` drops to the schematic.
+  const live = !!status?.mapbox_token && navigator.onLine && !mapFailed;
   const byCat = places.reduce((acc, p, idx) => { (acc[p.category] ||= []).push({ ...p, idx }); return acc; }, {});
   const readout = s.measuring
     ? 'Measuring distances between places'

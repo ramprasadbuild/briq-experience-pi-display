@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef } from 'react';
 import Icon from '../ui/Icon.jsx';
 import { Kicker } from '../ui/Chrome.jsx';
-import { brandName, pad2 } from '../tokens.js';
+import { pad2 } from '../format.js';
+import { heroImage } from '../project.js';
+import { brandName } from '../tokens.js';
 import './Home.css';
 
 const TOUR_MS = 26_000; // one full turn of the ring, as on the tablet
@@ -39,7 +41,7 @@ export default function Home({ data, s, chapters }) {
 
   return (
     <div className="home">
-      {data.hero_image || data.gallery?.[0] ? <img className="home-bg" src={data.hero_image ?? data.gallery[0]} alt="" /> : null}
+      {heroImage(data) ? <img className="home-bg" src={heroImage(data)} alt="" /> : null}
       <div className="home-tint" />
 
       <div className="home-columns">

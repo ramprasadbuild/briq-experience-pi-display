@@ -42,11 +42,7 @@ async function backend(t, { legacy = false } = {}) {
       },
     },
   });
-  fx.server.on('request', (req, res) => {
-    const m = /^\/api\/public\/experience\/devices\/17\/commands\/(\d+)\/ack$/.exec(req.url);
-    if (!m) return;
-  });
-  // Ack route (dynamic id).
+  // Ack route (dynamic id), intercepted before the fixture's own handler.
   const origEmit = fx.server.emit.bind(fx.server);
   fx.server.emit = (event, req, res, ...rest) => {
     if (event === 'request') {

@@ -8,7 +8,7 @@ export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 export const APP_VERSION = JSON.parse(readFileSync(resolve(REPO_ROOT, 'package.json'), 'utf8')).version;
 
-export const API_BASE_URL = (process.env.API_BASE_URL ?? 'https://briq-crm-app-preprod-hiw6sglj2q-ue.a.run.app').replace(/\/+$/, '');
+export const API_BASE_URL = (process.env.API_BASE_URL ?? 'https://briq-crm-app-preprod-1064637450777.us-east1.run.app').replace(/\/+$/, '');
 
 export function wsOrigin(base = API_BASE_URL) {
   const url = new URL(base);

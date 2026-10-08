@@ -1,4 +1,4 @@
-import { pad2 } from '../tokens.js';
+import { pad2 } from '../format.js';
 import Icon from './Icon.jsx';
 
 /** Shared kiosk chrome, display-only: kickers, counters, pills, the chapter header, empty states. */

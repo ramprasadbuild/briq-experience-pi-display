@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { heroImage, originalUrl } from '../project.js';
 import { ChapterHead, Empty } from '../ui/Chrome.jsx';
 import Icon from '../ui/Icon.jsx';
 import './Walkthrough.css';
@@ -10,6 +11,8 @@ import './Walkthrough.css';
  * drift exceeds 0.5 s, so normal playback is never interrupted.
  */
 const DRIFT_S = 0.5;
+
+/** YouTube / Vimeo links become an autoplaying, muted, chromeless embed; anything else is a file. */
 const embedUrl = (url) => {
   const yt = String(url).match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w-]{6,})/);
   if (yt) return `https://www.youtube-nocookie.com/embed/${yt[1]}?autoplay=1&mute=1&controls=0&rel=0`;
@@ -17,11 +20,13 @@ const embedUrl = (url) => {
   if (vimeo) return `https://player.vimeo.com/video/${vimeo[1]}?autoplay=1&muted=1&controls=0`;
   return null;
 };
-const fmt = (sec) => {
+/** Seconds → "m:ss". */
+const clockText = (sec) => {
   const t = Math.max(0, Math.floor(sec || 0));
   return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
 };
 
+/** Where playback should be now, extrapolated from the tablet's last {time, at, rate} sample. */
 export function expectedTime(s, now = Date.now()) {
   const time = Number(s.time) || 0;
   if (!s.playing) return time;
@@ -33,8 +38,7 @@ export function expectedTime(s, now = Date.now()) {
 
 export default function Walkthrough({ data, s, meta, status }) {
   const url = data.walkthrough_video;
-  const original = data.__keys?.get(url) ?? url;
-  const embed = url ? embedUrl(original) : null;
+  const embed = url ? embedUrl(originalUrl(data, url)) : null;
   const video = useRef(null);
   const sRef = useRef(s);
   sRef.current = s;
@@ -95,7 +99,7 @@ export default function Walkthrough({ data, s, meta, status }) {
         ref={video}
         className="wt-video"
         src={url}
-        poster={data.hero_image ?? data.gallery?.[0]}
+        poster={heroImage(data)}
         preload="auto"
         playsInline
         onLoadedMetadata={() => { onState(); apply(); }}
@@ -117,7 +121,7 @@ export default function Walkthrough({ data, s, meta, status }) {
         <div className="wt-ctrls">
           <div className="wt-icon"><Icon name={s.playing ? 'pause' : 'play'} /></div>
           <div className="wt-icon"><Icon name={s.muted ? 'volume-x' : 'volume-2'} /></div>
-          <div className="wt-time">{fmt(st.t)} / {fmt(st.d)}</div>
+          <div className="wt-time">{clockText(st.t)} / {clockText(st.d)}</div>
           <div className="wt-spacer" />
           {(Number(s.rate) || 1) !== 1 ? <div className="pill">{Number(s.rate)}×</div> : null}
         </div>

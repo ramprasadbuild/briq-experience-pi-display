@@ -37,7 +37,7 @@ body { color: var(--text); font-family: var(--sans); font-size: 1.5rem; -webkit-
 img { display: block; }
 
 .app, .kiosk { position: absolute; inset: 0; overflow: hidden; }
-.kiosk { animation: fade-in 600ms ease both; }
+.kiosk { animation: fade-in 240ms ease both; }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
 .kicker { font-family: var(--sans); font-weight: 500; font-size: 1.05rem; letter-spacing: 0.28em; color: var(--gold); }

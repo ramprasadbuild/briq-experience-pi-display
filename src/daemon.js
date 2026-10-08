@@ -4,7 +4,7 @@
 import QRCode from 'qrcode';
 import { ApiClient } from './api.js';
 import { Cdp } from './cdp.js';
-import { CobrowseSocket } from './cobrowse.js';
+import { CobrowseSocket, deviceRoom } from './cobrowse.js';
 import {
   API_BASE_URL, APP_VERSION, CDP_PORT, DEV_RELAY_KEY, ensureDir, HEARTBEAT_INTERVAL_MS, HOST, KIOSK_UNIT,
   LEGACY_DEVICE_ID_FILE, MANIFEST_POLL_MS, MAPBOX_TOKEN, MIN_FREE_BYTES, PORT, resolveDataDir, TV_APP_DIR, wsOrigin,
@@ -55,6 +55,7 @@ async function main() {
   let statusCache = { ...device.status(), qr_data_uri: null, mapbox_token: MAPBOX_TOKEN || null };
   const server = new LocalServer({ store, relay, tvDir: TV_APP_DIR, getStatus: () => statusCache });
 
+  // Status pushes are debounced: a heartbeat plus a sync state change can fire several in a burst.
   let statusTimer = null;
   const pushStatus = () => {
     if (statusTimer) return;
@@ -79,12 +80,13 @@ async function main() {
   console.log(`[daemon] local server on http://${HOST}:${port} (TV app http://127.0.0.1:${port}/tv/, relay ws://<lan>:${port}/relay)`);
 
   // Cloud fallback (§6.1): stay a viewer in the device room and forward everything to local viewers.
+  // Re-evaluated on every status change because the device id can change (register issued a new one).
   let cloud = null;
   const connectCloud = () => {
     const id = identity.get().device_id;
-    if (id == null || cloud?.sessionId === `device-${id}`) return;
+    if (id == null || cloud?.sessionId === deviceRoom(id)) return;
     cloud?.close();
-    cloud = new CobrowseSocket(`device-${id}`, 'viewer', { origin: wsOrigin(API_BASE_URL) });
+    cloud = new CobrowseSocket(deviceRoom(id), 'viewer', { origin: wsOrigin(API_BASE_URL) });
     cloud.onMessage((message) => {
       if (message?.t === 'state') relay.inject(message.state, 'cloud');
     });
@@ -96,21 +98,7 @@ async function main() {
   connectCloud();
   pushStatus();
 
-  // Watchdog: the TV app keeps /local/events open. If nothing has been connected for two checks
-  // in a row, point the kiosk tab back at the app (or reload it) over CDP.
-  const localUrl = `http://127.0.0.1:${port}/tv/`;
-  let quietChecks = 0;
-  setInterval(async () => {
-    quietChecks = server.eventClients.size === 0 ? quietChecks + 1 : 0;
-    if (quietChecks < 2) return;
-    try {
-      const r = await kiosk.recover(localUrl);
-      console.log(`[watchdog] TV app not connected; ${r.action}`);
-    } catch {
-      // No CDP (dev without a kiosk browser): nothing to recover.
-    }
-    quietChecks = 0;
-  }, WATCHDOG_MS).unref();
+  startWatchdog({ server, kiosk, localUrl: `http://127.0.0.1:${port}/tv/` });
 
   const shutdown = async (signal) => {
     console.log(`[daemon] ${signal}: shutting down`);
@@ -122,6 +110,26 @@ async function main() {
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
+}
+
+/**
+ * The TV app keeps /local/events open. If nothing has been connected for two checks in a row,
+ * point the kiosk tab back at the app (or reload it) over CDP. Two checks, not one, so a normal
+ * page reload (which drops the socket briefly) never triggers a recovery.
+ */
+function startWatchdog({ server, kiosk, localUrl, intervalMs = WATCHDOG_MS }) {
+  let quietChecks = 0;
+  setInterval(async () => {
+    quietChecks = server.eventClients.size === 0 ? quietChecks + 1 : 0;
+    if (quietChecks < 2) return;
+    try {
+      const r = await kiosk.recover(localUrl);
+      console.log(`[watchdog] TV app not connected; ${r.action}`);
+    } catch {
+      // No CDP (dev without a kiosk browser): nothing to recover.
+    }
+    quietChecks = 0;
+  }, intervalMs).unref();
 }
 
 main().catch((err) => {

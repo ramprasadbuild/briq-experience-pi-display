@@ -4,6 +4,9 @@
 import WebSocket from 'ws';
 import { wsOrigin } from './config.js';
 
+/** The cobrowse room for a box: the tablet presents into `device-<device_id>`. */
+export const deviceRoom = (deviceId) => `device-${deviceId}`;
+
 export class CobrowseSocket {
   #ws = null;
   #closedByUser = false;
