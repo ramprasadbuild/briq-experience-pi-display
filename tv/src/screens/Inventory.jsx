@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { areaText, ordinal, priceText } from '../format.js';
 import { heroImage } from '../project.js';
 import { centroid, floorPlateFor, resolveRenderPack, unitPosition } from '../renderPack.js';
@@ -7,6 +7,8 @@ import { Empty, Kicker } from '../ui/Chrome.jsx';
 import HotspotImage from '../ui/HotspotImage.jsx';
 import Icon from '../ui/Icon.jsx';
 import Model3D from '../ui/Model3D.jsx';
+import Scene3D from '../ui/Scene3D.jsx';
+import { towerLayout } from '../scene3d/scene.js';
 import './Inventory.css';
 
 /**
@@ -21,6 +23,11 @@ import './Inventory.css';
  *
  * `useInventory` resolves the tablet's state against the project once; each level is its own
  * component reading that model.
+ *
+ * A project without its own traced aerial render gets the live 3D model instead (ui/Scene3D):
+ * one scene for the aerial, tower and floor levels, turned and flown by the tablet
+ * (`scene_cam` {yaw, pitch, zoom, tod, season, date} — tod is the time of day, 0 = 05:00 … 1 = 21:00; season is the sun-study date: today | summer | winter), with every flat in its live status colour and the picked flat's floor
+ * plate and details in a panel beside it.
  */
 
 const LEVELS = ['aerial', 'tower', 'floor', 'unit'];
@@ -77,10 +84,13 @@ function useInventory(data, s) {
   // The presenter reveals the data; the TV is image-only until then.
   const showDetails = level === 'unit' && !!unit && s.show_details === true;
   const compareInPanel = showDetails && mode !== '3d';
+  // The builder's own traced renders win; everything else is shown on the live 3D model.
+  const use3d = !data.render_pack?.aerial && level !== 'unit';
+  const statuses = Array.isArray(s.status_filter) && s.status_filter.length ? s.status_filter : null;
 
   return {
     data, s, towers, pack, tower, unit, tip, level, cfg, towerUnits, shown, floorNo, floorUnits, cfgOf, totals,
-    elevation, plate, unitRender, modes, mode, isOn, compare, showDetails, compareInPanel,
+    elevation, plate, unitRender, modes, mode, isOn, compare, showDetails, compareInPanel, use3d, statuses,
   };
 }
 
@@ -90,6 +100,8 @@ export default function Inventory({ data, s, meta }) {
     return <Empty title="No inventory yet">No inventory published for this project yet.</Empty>;
   }
   const { level, tower, unit, tip, floorNo, compare, showDetails, compareInPanel, mode } = inv;
+
+  if (inv.use3d) return <Inventory3D inv={inv} meta={meta} />;
 
   const main = level === 'aerial' ? <AerialView inv={inv} />
     : level === 'tower' ? <TowerView inv={inv} />
@@ -123,6 +135,176 @@ export default function Inventory({ data, s, meta }) {
 
       {compare.length > 0 && !compareInPanel ? <CompareTable inv={inv} className={`inv-compare-float ${showDetails && mode === '3d' ? 'raised' : ''}`} /> : null}
     </div>
+  );
+}
+
+// ---- Live 3D model: aerial → tower → floor on one scene --------------------------------------
+
+const STATUS_ORDER = ['available', 'hold', 'sold'];
+
+function Inventory3D({ inv, meta }) {
+  const { data, s, towers, tower, level, tip, floorNo, floorUnits, towerUnits, cfg, cfgOf, totals, statuses, compare } = inv;
+  const picked = level === 'floor' ? tip : null;
+  const panel = level === 'floor' && floorNo != null;
+  const state = {
+    level, towerId: tower.id, unitNo: picked?.unit_no ?? (level === 'tower' ? tip?.unit_no ?? null : null), floor: panel ? floorNo : null,
+    cfg, statuses, shiftX: panel ? 0.17 : 0, yaw: s.scene_cam?.yaw, pitch: s.scene_cam?.pitch, zoom: s.scene_cam?.zoom, tod: s.scene_cam?.tod, season: s.scene_cam?.season, date: s.scene_cam?.date, sun: !!s.scene_cam?.sun, avail: !!s.scene_cam?.avail,
+  };
+  const counts = STATUS_ORDER.map((st) => [st, towerUnits.filter((u) => u.status === st).length]);
+  const plan = picked ? cfgOf(picked.bhk)?.image : null;
+  const planAt = picked ? Math.max(0, floorUnits.slice().sort((a, b) => String(a.unit_no).localeCompare(String(b.unit_no), undefined, { numeric: true })).findIndex((u) => u.unit_no === picked.unit_no)) % 6 : 0;
+
+  return (
+    <div className="inv inv3d">
+      <Scene3D towers={towers} state={state} />
+      <div className="inv3d-shade" />
+
+      <div className="inv-crumbs">
+        {data.org?.logo_url ? <img className="inv-logo" src={data.org.logo_url} alt="" /> : null}
+        <Crumb first on={level === 'aerial'}>{data.name}</Crumb>
+        {level !== 'aerial' ? <Crumb on={level === 'tower'}>{tower.name}</Crumb> : null}
+        {panel ? <Crumb on>{`Floor ${floorNo}`}</Crumb> : null}
+      </div>
+      {meta ? <div className="inv-chapter"><span>{meta.no}</span>{meta.name.toUpperCase()}</div> : null}
+
+      {level === 'aerial' ? !s.scene_cam?.avail ? null : (
+        <div className="inv-aerial-card">
+          <div className="glass-panel inv-project">
+            <div className="inv-project-name">{data.location ?? data.address ?? data.name}</div>
+            <div className="inv-project-count"><b>{totals.total}</b> {totals.total === 1 ? 'home' : 'homes'} · <b>{totals.available}</b> available</div>
+            <div className="inv-tower-chips">
+              {towers.map((t) => <div key={String(t.id)} className="inv-tower-chip">{t.name}<span>{t.available}/{t.total}</span></div>)}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="glass-panel inv3d-legend">
+          <div className="inv3d-legend-title">{tower.name}</div>
+          <div className="inv3d-legend-sub">{tower.total_floors} floors · {towerUnits.length} homes{cfg ? ` · ${cfg}` : ''}</div>
+          {counts.map(([st, n]) => (
+            <div key={st} className={`inv3d-legend-row ${statuses && !statuses.includes(st) ? 'off' : ''}`}>
+              <i style={{ background: statusColor(st) }} />{STATUS_LABEL[st]}<b>{n}</b>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {level === 'tower' && tip ? (
+        <div className="glass-panel inv-tooltip">
+          <div className="inv-tip-title">{tower.name} · {ordinal(Number(tip.floor))} Floor</div>
+          <KV label="Apartment no" value={tip.unit_no} />
+          <KV label="Status" value={(STATUS_LABEL[tip.status] ?? tip.status).toUpperCase()} color={statusColor(tip.status)} />
+          <KV label="Unit type" value={tip.bhk ?? '—'} />
+          <KV label="Area" value={areaText(tip.carpet_area, 'sqft')} />
+          <KV label="Price" value={priceText(tip.price, null)} color={xc.gold} />
+        </div>
+      ) : null}
+
+      {panel ? (
+        <div className="glass-panel inv3d-panel">
+          <Kicker color="var(--textFaint)">Selected residence</Kicker>
+          <div className="inv3d-panel-title">{tower.name} <span>·</span> Floor {floorNo}</div>
+          <div className="inv3d-panel-sub">{floorUnits.length} {floorUnits.length === 1 ? 'home' : 'homes'} on this floor</div>
+          <FloorImage units={floorUnits} picked={picked} dim={(u) => (cfg && u.bhk !== cfg) || (statuses && !statuses.includes(u.status))} />
+          {picked ? (
+            <div className="inv3d-unit">
+              <div className="inv3d-unit-facts">
+                <div className="inv3d-unit-no">{picked.unit_no}</div>
+                <div className="inv3d-unit-status" style={{ color: statusColor(picked.status), borderColor: statusColor(picked.status) }}>{STATUS_LABEL[picked.status] ?? picked.status}</div>
+                <KV label="Type" value={picked.bhk ?? '—'} />
+                <KV label="Area" value={areaText(picked.carpet_area, 'sqft')} />
+                <KV label="Facing" value={picked.facing ?? '—'} />
+                <KV label="Price" value={priceText(picked.price, null)} color={xc.gold} />
+              </div>
+              {plan ? <img className="inv3d-unit-plan" src={plan} alt="" /> : <FlatPlan className="inv3d-unit-plan" at={planAt} measured={s.unit_mode === 'sqft'} />}
+            </div>
+          ) : <div className="inv-hint">Choosing a home on the tablet…</div>}
+        </div>
+      ) : null}
+
+      {panel && s.plan_full ? (
+        <div className="inv3d-full">
+          <div className="inv3d-full-title">{s.plan_full === 'flat' && picked ? `${picked.unit_no} · ${picked.bhk ?? ''}` : `${tower.name} · Floor ${floorNo}`}</div>
+          <div className="inv3d-full-box">
+            {s.plan_full === 'flat' && picked
+              ? (plan ? <img src={plan} alt="" /> : <FlatPlan at={planAt} measured={s.unit_mode === 'sqft'} big />)
+              : <FloorImage units={floorUnits} picked={picked} dim={(u) => (cfg && u.bhk !== cfg) || (statuses && !statuses.includes(u.status))} />}
+          </div>
+        </div>
+      ) : null}
+
+      {compare.length > 0 ? <CompareTable inv={inv} className="inv-compare-float" /> : null}
+    </div>
+  );
+}
+
+// SAMPLE measurements for the sample flat plans: room name, size, and where the tag sits on the image
+// (fractions of its width / height). The sizes are placeholders until the builder's real room dimensions arrive.
+const M = "14'0\" × 12'0\""; const B = "12'0\" × 11'0\""; const L = "16'0\" × 12'0\""; const D = "10'0\" × 9'0\""; const K = "10'0\" × 8'0\""; const T = "8'0\" × 5'0\"";
+const FLAT_ROOMS = [
+  [['Bedroom', B, 0.41, 0.25], ['Master bedroom', M, 0.78, 0.58], ['Living', L, 0.59, 0.70], ['Dining', D, 0.39, 0.58], ['Kitchen', K, 0.26, 0.45], ['Bath', T, 0.56, 0.40]],
+  [['Master bedroom', M, 0.41, 0.27], ['Bedroom', B, 0.67, 0.57], ['Living', L, 0.57, 0.47], ['Dining', D, 0.34, 0.56], ['Kitchen', K, 0.49, 0.69], ['Bath', T, 0.24, 0.39]],
+  [['Kitchen', K, 0.21, 0.22], ['Dining', D, 0.24, 0.44], ['Living', L, 0.29, 0.62], ['Bedroom', B, 0.60, 0.58], ['Master bedroom', M, 0.78, 0.43], ['Bath', T, 0.55, 0.25]],
+  [['Kitchen', K, 0.45, 0.21], ['Dining', D, 0.58, 0.33], ['Living', L, 0.67, 0.46], ['Bedroom', B, 0.49, 0.66], ['Master bedroom', M, 0.28, 0.74], ['Bath', T, 0.31, 0.45]],
+  [['Bedroom', B, 0.36, 0.38], ['Living', L, 0.49, 0.49], ['Master bedroom', M, 0.76, 0.57], ['Dining', D, 0.42, 0.67], ['Kitchen', K, 0.17, 0.51], ['Bath', T, 0.64, 0.72]],
+  [['Bedroom', B, 0.25, 0.43], ['Kitchen', K, 0.49, 0.25], ['Dining', D, 0.56, 0.41], ['Living', L, 0.70, 0.56], ['Master bedroom', M, 0.59, 0.77], ['Bath', T, 0.41, 0.56]],
+];
+/** A sample flat plan fitted inside its box, with the room measurements tagged on it when the tablet's ruler is on. */
+function FlatPlan({ at, measured, big, className }) {
+  const box = useRef(null); const [fit, setFit] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = box.current; if (!el) return undefined;
+    const ro = new ResizeObserver(() => { const w = Math.min(el.clientWidth, el.clientHeight * 1.4); setFit({ w, h: w / 1.4 }); });
+    ro.observe(el); return () => ro.disconnect();
+  }, []);
+  return (
+    <div ref={box} className={`inv3d-flatplan ${big ? 'big' : ''} ${className ?? ''}`}>
+      <div style={{ width: fit.w, height: fit.h }}>
+        <img src={`${SAMPLE}flat0${at + 1}.webp`} alt="" />
+        {measured ? FLAT_ROOMS[at].map(([name, size, x, y]) => <span key={name} style={{ left: `${x * 100}%`, top: `${y * 100}%` }}>{big ? <b>{name}</b> : null}{size}</span>) : null}
+      </div>
+    </div>
+  );
+}
+
+/** The floor's rendered plan (sample content shipped with the app), each home marked with its number in its status colour. */
+const SAMPLE = `${import.meta.env.BASE_URL}sample/`;
+const FLOOR_SPOTS = [[0.12, 0.49], [0.34, 0.61], [0.83, 0.14], [0.83, 0.37], [0.85, 0.66], [0.58, 0.78]];
+const sortedUnits = (units) => units.slice().sort((a, b) => String(a.unit_no).localeCompare(String(b.unit_no), undefined, { numeric: true }));
+function FloorImage({ units, picked, dim }) {
+  return (
+    <div className="inv3d-floorimg">
+      <img src={`${SAMPLE}floor.webp`} alt="" />
+      {sortedUnits(units).slice(0, FLOOR_SPOTS.length).map((u, i) => {
+        const on = picked?.unit_no === u.unit_no;
+        return <span key={u.unit_no} className={on ? 'on' : ''} style={{ left: `${FLOOR_SPOTS[i][0] * 100}%`, top: `${FLOOR_SPOTS[i][1] * 100}%`, background: on ? '#ffd21f' : statusColor(u.status), opacity: dim(u) && !on ? 0.35 : 1 }}>{u.unit_no}</span>;
+      })}
+    </div>
+  );
+}
+
+/** The floor seen from above, drawn from the same layout the 3D model uses: two rows of homes either side of the corridor. */
+export function FloorPlate({ tower, floor, picked, dim }) {
+  const L = useMemo(() => towerLayout(tower), [tower]);
+  const units = L.byFloor.get(Number(floor)) ?? [];
+  const W = 100; const rowH = 30; const gap = 9;
+  return (
+    <svg className="inv3d-plate" viewBox={`-3 -3 ${W + 6} ${rowH * 2 + gap + 6}`}>
+      <rect x="0" y={rowH} width={W} height={gap} fill="rgba(255,255,255,0.08)" />
+      {Array.from({ length: L.perFloor }, (_, i) => {
+        const u = units[i]; const front = i < L.front;
+        const n = front ? L.front : Math.max(L.back, 1); const j = front ? i : i - L.front;
+        const w = W / n; const x = front ? j * w : W - (j + 1) * w; const y = front ? rowH + gap : 0;
+        const on = u && picked && String(u.unit_no) === String(picked.unit_no);
+        const color = !u ? 'rgba(255,255,255,0.10)' : on ? xc.gold : dim?.(u) ? 'rgba(255,255,255,0.16)' : statusColor(u.status);
+        return (
+          <g key={i}>
+            <rect x={x + 0.8} y={y + 0.8} width={w - 1.6} height={rowH - 1.6} rx="1.6" fill={color} fillOpacity={on ? 1 : u ? 0.72 : 1} stroke={on ? '#fff' : 'rgba(255,255,255,0.35)'} strokeWidth={on ? 0.9 : 0.3} />
+            {u ? <text x={x + w / 2} y={y + rowH / 2 + 1.6} textAnchor="middle" fontSize="4.6" fontWeight="700" fill={on ? '#16130c' : '#fff'}>{u.unit_no}</text> : null}
+          </g>
+        );
+      })}
+    </svg>
   );
 }
 
