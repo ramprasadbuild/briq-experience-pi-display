@@ -5,7 +5,7 @@
 // chapters the tablet changed. The view is {mode, slug, lead, kiosk}; `kiosk` is the full merged
 // state the screens read.
 
-export const CHAPTERS = ['home', 'renders', 'inventory', 'brochure', 'vr', 'walkthrough', 'location'];
+export const CHAPTERS = ['home', 'renders', 'inventory', 'brochure', 'vr', 'walkthrough', 'location', 'masterplan'];
 
 /** Every chapter's state at the moment a project is presented. */
 export function defaultKiosk(slug) {
@@ -25,6 +25,9 @@ export function defaultKiosk(slug) {
     vr: { scene_idx: null, node_id: null, cam: null },
     walkthrough: { playing: false, time: 0, rate: 1, muted: false, at: null },
     location: { poi: null, is_3d: false, measuring: false, map_cam: null },
+    // The 3D township: the picked zone (a pack zone id), the light, the guided tour's stop (index into
+    // the pack's zones; null = not touring) and the tablet's camera {tx, ty, tz, r, phi, theta}.
+    masterplan: { zone: null, lighting: 'day', rain: false, tour: null, cam: null },
   };
 }
 

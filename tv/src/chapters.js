@@ -1,5 +1,6 @@
-// The six kiosk chapters — a port of the controller's src/chapters.ts. `enabled` is what the Home
+// The kiosk chapters (the reference's six, plus Master Plan) — a port of the controller's src/chapters.ts. `enabled` is what the Home
 // screen greys out; `image` feeds the orb.
+import { masterPlanFor } from './masterplan/pack.js';
 import { heroImage } from './project.js';
 
 export const walkthroughScene = (d) => (d.scenes ?? []).find((s) => s.type === 'walkthrough' && (s.nodes?.length ?? 0) > 0);
@@ -17,5 +18,7 @@ export function buildChapters(d) {
     { id: 'vr', no: '04', kick: 'WALKABLE · 360°', name: 'VR', blurb: 'Step inside, at full scale', image: firstImage(d, vr?.nodes?.[0]?.url, gallery[3]), enabled: !!vr },
     { id: 'walkthrough', no: '05', kick: 'CINEMATIC FILM', name: 'Walkthrough', blurb: 'A cinematic passage through the tower', image: firstImage(d, gallery[4]), enabled: !!d.walkthrough_video },
     { id: 'location', no: '06', kick: 'LOCATION · MAP', name: 'AV Location', blurb: 'The address, seen from above', image: firstImage(d, gallery[5]), enabled: hasMap || (d.vicinity ?? []).length > 0 },
+    // Last, so the first six keep the positions `home.index` has always meant.
+    { id: 'masterplan', no: '07', kick: 'TOWNSHIP · LIVE 3D', name: 'Master Plan', blurb: 'The whole township, in the round', image: firstImage(d, gallery[6], gallery[0]), enabled: !!masterPlanFor(d) },
   ];
 }

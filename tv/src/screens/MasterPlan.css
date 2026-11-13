@@ -1,0 +1,18 @@
+.mp { position: absolute; inset: 0; background: #cfe0ea; overflow: hidden; }
+.mp-stage { position: absolute; inset: 0; }
+.mp-veil { position: absolute; inset: 0; z-index: 5; background: var(--bg); }
+
+.mp-light { position: absolute; top: 6.4rem; left: var(--edge); display: flex; gap: 0.8rem; z-index: 10; }
+
+.mp-card { position: absolute; top: 2rem; right: var(--edge); width: 31rem; padding: 2rem; display: flex; flex-direction: column; gap: 0.9rem; z-index: 10; border-color: var(--lineGold); animation: mp-in 420ms ease both; }
+.mp-card-name { font-family: var(--display); font-size: 3rem; letter-spacing: 0.04em; line-height: 1.1; }
+.mp-card-count { color: var(--gold2); font-weight: 500; font-size: 1.15rem; letter-spacing: 0.2em; }
+.mp-card-blurb { color: var(--textDim); font-size: 1.45rem; line-height: 1.5; margin-top: 0.3rem; }
+@keyframes mp-in { from { opacity: 0; transform: translateY(0.8rem); } to { opacity: 1; transform: none; } }
+
+.mp-tour { position: absolute; left: 50%; bottom: 2.4rem; transform: translateX(-50%); z-index: 10; display: flex; align-items: center; gap: 1.6rem; height: 4rem; padding: 0 2rem; border-radius: 999px; background: var(--glass2); border: 1px solid var(--lineGold); white-space: nowrap; }
+.mp-tour-dots { display: flex; align-items: center; gap: 0.6rem; }
+.mp-tour-dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--line); transition: all 400ms; }
+.mp-tour-dot.done { background: var(--textFaint); }
+.mp-tour-dot.on { width: 2rem; border-radius: 0.3rem; background: var(--gold); }
+.mp-tour-name { font-weight: 500; font-size: 1.2rem; letter-spacing: 0.18em; }

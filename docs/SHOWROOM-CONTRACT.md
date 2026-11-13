@@ -304,9 +304,10 @@ Sent after `present` and on every change (continuous values such as cameras samp
 {
   "v": 2,
   "slug": "briq-skyline-9",
-  "chapter": "inventory",               // home | renders | inventory | brochure | vr | walkthrough | location
+  "chapter": "inventory",               // home | renders | inventory | brochure | vr | walkthrough | location | masterplan (§8f)
   "home":      { "index": 1, "paused": true },
-  "renders":   { "index": 3, "playing": false, "zoom": 1.0, "pan_x": 0.0, "pan_y": 0.0 },
+  "renders":   { "index": 3, "playing": false, "zoom": 1.0, "pan_x": 0.0, "pan_y": 0.0,
+                 "marks": [[0.41, 0.32, 0.44, 0.35]] },
   "inventory": { "level": "unit",       // aerial | tower | floor | unit
                  "tower_id": 14, "floor": 9, "unit_no": "A-903", "tip_unit_no": null,
                  "cfg": null, "unit_mode": "3d",   // standard | sqft | sqm | 3d
@@ -380,6 +381,9 @@ part of the contract.
 
 **Units in §6.3**
 - `renders.pan_x` / `pan_y`: fraction of the stage size (−1…1), not pixels.
+- `renders.marks`: the presenter's pencil strokes on the current render, each a flat
+  `[x0, y0, x1, y1, …]` list in fractions of the image itself (0,0 top-left, 1,1 bottom-right);
+  at most 30 strokes of 120 points. Cleared when `index` changes.
 - `vr.cam.yaw` / `pitch`: radians; `vr.cam.zoom`: photo-sphere-viewer zoom level 0–100.
 - `inventory.model_cam.theta` / `phi`: degrees; `radius`: metres (null = auto).
 
@@ -532,6 +536,85 @@ pick it up on their next sync. Nothing is uploaded or published separately.
   pin". Activities: `school coffee work dining gym groceries family health transit`; personas:
   `anyone family founder investor nri`. A stop whose place id no longer exists falls back to the
   nearest place of that activity's category.
+
+## 8e. Amendment 6 — push on demand instead of heartbeats (2026-10-19)
+
+Goal: content is served entirely from the LAN, and nothing talks to the backend on a timer. The
+backend reaches a device only when it has something for it, by **Firebase Cloud Messaging** (FCM,
+Firebase project `solve-briqs`; Google Play Services keeps the connection, not our apps).
+
+**What changed for the TV box**
+- No 30 s heartbeat and no cloud room seat (`/ws/cobrowse?session=device-<id>&role=viewer` is gone).
+- `POST /api/public/experience/devices/<id>/heartbeat` stays, same request and response, but is now
+  a *check-in*. The box checks in: on start; when it gets a push; when its LAN addresses change
+  (watched locally); after a sync ends (to report content); while unpaired, just after its pairing
+  code expires; after a failed check-in on a backoff (1, 2, 5, 15, 30 min); and as a fallback when
+  push is not working (every 30 s while unpaired, every 30 min once paired).
+- The check-in body adds `push_token` (string, the box's FCM token). Only an authenticated box
+  (Device auth) can set it.
+- The box announces its LAN relay on the Wi-Fi with DNS-SD/mDNS: service type `_briqtv._tcp`,
+  name `BriQ TV <id>`, port = relay port (8787), TXT `device_id=<id>`.
+
+**What changed for the tablet**
+- Presenting is LAN only; there is no cloud room fallback. Relay candidates, in order: boxes found
+  on the Wi-Fi (`_briqtv._tcp`, matched on `device_id`), then the device list's `lan_addresses`.
+  Until one answers, the tablet shows "FINDING TV ON WI-FI" and re-probes every 5 s (LAN only).
+- `POST /api/experience/tablets/me/status` adds `push_token`. The tablet no longer re-checks content
+  on foreground unless push is not working; it syncs on start, on reconnect, and on a `sync` push.
+
+**Pushes** (FCM data messages, Android priority high, TTL 24 h, collapse key = `t`)
+
+| `t` | To | Sent when | Device does |
+| --- | --- | --- | --- |
+| `checkin` | TV box | claim, PATCH device (name/projects), a queued command, `forget`, "Check now", project sent to showroom | one check-in (pairing state, projects + etags, commands) |
+| `sync` | tablet | project sent to showroom | re-check the manifest |
+
+Every message also carries `reason` (e.g. `claimed`, `command`, `content`, `check_now`). Pushes go
+out after the transaction commits. A token FCM rejects as gone is cleared.
+
+**New endpoints**
+- `POST /api/experience/devices/{id}/checkin` (inventory.manage) → `{push: "sent"|"no_token"|"disabled"}`.
+- `POST /api/experience/projects/{id}/send-to-showroom` (inventory.manage) →
+  `{push, tvs, tablets, sent}`. Content edits bump `content_version` from triggers in many writers,
+  so devices are not pushed on every edit; the CRM's **Update showroom** button sends a project when
+  the builder is done.
+
+**Device JSON** (§2.3) adds `push_ready` (the backend holds a push token). `online` still means
+"checked in within 90 s", which is now rare; the CRM shows "Last check-in …" plus **Check now**.
+
+**Schema**: `072_experience_push_tokens.sql` — `push_token`, `push_token_updated_at` on
+`experience_devices` and `experience_tablets`.
+
+**Config**: `app.experience.fcm.project-id` (`EXPERIENCE_FCM_PROJECT_ID`); blank disables pushes.
+The Cloud Run service account needs `roles/firebasecloudmessaging.admin`.
+
+## 8f. Amendment 7 — Master Plan chapter (2026-11-14)
+
+A seventh chapter: the township as a 3D model the presenter orbits, zooms and tours.
+
+**Kiosk state** (§6.3) gains the chapter id `masterplan` and one slice:
+```json
+"masterplan": { "zone": "r3",           // picked zone (a pack zone id) | null
+                "lighting": "day",      // day | evening
+                "rain": false,
+                "tour": 0,              // guided tour's stop: index into the pack's zones | null
+                "cam": { "tx": 91, "ty": 34, "tz": -883, "r": 808, "phi": 1.02, "theta": 1.24 } }
+```
+`cam` orbits the point (tx, ty, tz) in model units at distance `r`, `phi` radians down from
+straight above, `theta` radians around; it is sampled ≤ 12/s like the other cameras and the TV
+eases towards it. `home.index` 6 is the Master Plan card; the first six keep their positions.
+
+**Content.** The payload carries no site model. Both apps ship the same township `.glb` and the
+same pack (zone ids, the node-name prefix each zone claims, names, copy): `src/masterplan/index.ts`
+on the tablet, `tv/src/masterplan/pack.js` on the TV. A zone id or tour index means the same thing
+on both only while the two packs match.
+
+**Scene.** One module, `tv/src/masterplan/scene.js` in the TV repo, runs on both: imported by the
+TV as a viewer, and bundled into the tablet as `assets/web/masterplan.webjs` by
+`scripts/build-masterplan-bundle.mjs`.
+
+**Older TVs.** A TV build without this chapter ignores `chapter:"masterplan"` and stays on its
+last screen.
 
 ## 9. Sizes to plan for (per project, 5 min of 4K film)
 

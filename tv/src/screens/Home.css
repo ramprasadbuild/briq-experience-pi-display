@@ -20,6 +20,13 @@
 .home-rule { width: 3rem; height: 1px; background: var(--textFaint); }
 
 .home-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; }
+/* An odd chapter out (the seventh) takes the whole last row. */
+.home-grid > .home-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
+/* A fourth row of cards has to fit above the footer: tighten the column when there are more than six. */
+.home-left:has(.home-card:nth-child(7)) { gap: 1.7rem; }
+.home-left:has(.home-card:nth-child(7)) .home-h1 { font-size: 3.1rem; }
+.home-left:has(.home-card:nth-child(7)) .home-grid { gap: 0.8rem; }
+.home-left:has(.home-card:nth-child(7)) .home-card { padding: 0.85rem 1.5rem; }
 .home-card { display: flex; align-items: center; gap: 1.3rem; padding: 1.3rem 1.5rem; border-radius: 0.6rem; background: var(--glass); border: 1px solid var(--line); transition: background 500ms ease, border-color 500ms ease, transform 500ms ease; }
 .home-card.on { background: rgba(201, 164, 92, 0.14); border-color: var(--lineGold); transform: translateX(0.4rem); }
 .home-card.off { opacity: 0.55; }

@@ -1,7 +1,7 @@
 # BriQ Experience TV box
 
 One small Linux box per showroom TV (Raspberry Pi 5 class or a mini PC). It ships prefilled
-with project content, runs fully offline, and shows the **tablet's six-chapter kiosk design**
+with project content, runs fully offline, and shows the **tablet's kiosk design** (its seven chapters)
 on the TV while a salesperson drives it from the tablet. The server triggers content updates
 through the heartbeat and the box pulls them.
 

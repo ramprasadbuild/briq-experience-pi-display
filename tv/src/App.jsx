@@ -11,12 +11,13 @@ import Home from './screens/Home.jsx';
 import Idle from './screens/Idle.jsx';
 import Inventory from './screens/Inventory.jsx';
 import Location from './screens/Location.jsx';
+import MasterPlan from './screens/MasterPlan.jsx';
 import Renders from './screens/Renders.jsx';
 import VR from './screens/VR.jsx';
 import Walkthrough from './screens/Walkthrough.jsx';
 import { Empty, Loading } from './ui/Chrome.jsx';
 
-const SCREENS = { home: Home, renders: Renders, inventory: Inventory, brochure: Brochure, vr: VR, walkthrough: Walkthrough, location: Location };
+const SCREENS = { home: Home, renders: Renders, inventory: Inventory, brochure: Brochure, vr: VR, walkthrough: Walkthrough, location: Location, masterplan: MasterPlan };
 
 /** The presented project: one chapter screen at a time, remounted (`key`) when the chapter changes. */
 function Kiosk({ data, kiosk, status }) {
