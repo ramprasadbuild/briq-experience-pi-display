@@ -9,6 +9,10 @@ import './Renders.css';
  * pan_x, pan_y}. pan_x / pan_y are read as fractions of the stage size (0.1 = a tenth of the
  * width), applied before the zoom — the contract doesn't fix a unit; see README.
  *
+ * `renders.marks` are the presenter's pencil strokes: flat [x0, y0, x1, y1, …] lists in fractions
+ * of the picture itself, drawn in an SVG that is fitted and transformed exactly like the image, so
+ * a mark sits on the same spot of the render as on the tablet.
+ *
  * The render fills the whole screen. One that is close to the screen's shape (a 16:9 render on a
  * 16:9 TV) is covered edge to edge; a very different shape (a portrait plan) is contained, so
  * nothing important is cropped away.
@@ -34,6 +38,8 @@ export default function Renders({ data, s, meta }) {
   const gallery = data.gallery ?? [];
   // Whether each render is close enough to the screen's shape to fill it, learned as images load.
   const [fills, setFills] = useState({});
+  // Each loaded render's height / width, for the marks overlay.
+  const [aspects, setAspects] = useState({});
   const total = gallery.length;
   const index = clamp(Math.round(Number(s.index) || 0), 0, Math.max(0, total - 1));
 
@@ -50,6 +56,8 @@ export default function Renders({ data, s, meta }) {
   const px = clamp(Number(s.pan_x) || 0, -1, 1) * 100;
   const py = clamp(Number(s.pan_y) || 0, -1, 1) * 100;
   const caption = captionFor(originalUrl(data, gallery[index]), index);
+  const marks = Array.isArray(s.marks) ? s.marks.filter((m) => Array.isArray(m) && m.length >= 2) : [];
+  const aspect = aspects[gallery[index]];
   const near = (i) => Math.abs(i - index) <= 1 || (index === 0 && i === total - 1) || (index === total - 1 && i === 0);
 
   const onLoad = (src, e) => {
@@ -58,6 +66,7 @@ export default function Renders({ data, s, meta }) {
     const ratio = (w / h) / (window.innerWidth / window.innerHeight);
     const fill = ratio >= FILL_MIN && ratio <= FILL_MAX;
     setFills((f) => (f[src] === fill ? f : { ...f, [src]: fill }));
+    setAspects((a) => (a[src] === h / w ? a : { ...a, [src]: h / w }));
   };
 
   // Thumbnail strip: a window of up to 9 around the current image.
@@ -77,6 +86,16 @@ export default function Renders({ data, s, meta }) {
             style={i === index ? { transform: `translate(${px}%, ${py}%) scale(${zoom})` } : undefined}
           />
         ) : null))}
+        {aspect && marks.length ? (
+          <svg
+            className="rn-marks"
+            viewBox={`0 0 1000 ${1000 * aspect}`}
+            preserveAspectRatio={fills[gallery[index]] ? 'xMidYMid slice' : 'xMidYMid meet'}
+            style={{ transform: `translate(${px}%, ${py}%) scale(${zoom})` }}
+          >
+            {marks.map((m, i) => <polyline key={i} points={strokePoints(m, aspect)} />)}
+          </svg>
+        ) : null}
       </div>
       <div className="rn-shade-top" />
       <div className="rn-shade" />
@@ -97,6 +116,16 @@ export default function Renders({ data, s, meta }) {
       </div>
     </div>
   );
+}
+
+/** SVG points for one stroke in the 1000-wide viewBox; a lone point is drawn as a dot. */
+function strokePoints(stroke, aspect) {
+  const out = [];
+  for (let i = 0; i + 1 < stroke.length; i += 2) {
+    out.push(`${(Number(stroke[i]) || 0) * 1000},${(Number(stroke[i + 1]) || 0) * aspect * 1000}`);
+  }
+  if (out.length === 1) out.push(out[0]);
+  return out.join(' ');
 }
 
 /** A caption from the original file name ("hero-dusk.jpg" → "Hero Dusk"), like the tablet. */

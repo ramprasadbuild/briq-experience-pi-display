@@ -5,6 +5,9 @@
 /* A render close to the screen's shape fills it edge to edge; anything else (a portrait plan) stays uncropped. */
 .rn-img.fill { object-fit: cover; }
 .rn-img.on { opacity: 1; }
+/* The presenter's pencil marks: fitted and transformed exactly like the image under them. */
+.rn-marks { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; transition: transform 180ms linear; will-change: transform; }
+.rn-marks polyline { fill: none; stroke: #ff3b30; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
 .rn-shade { position: absolute; left: 0; right: 0; bottom: 0; height: 14rem; background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.62)); pointer-events: none; }
 .rn-shade-top { position: absolute; left: 0; right: 0; top: 0; height: 9rem; background: linear-gradient(to top, transparent, rgba(0, 0, 0, 0.5)); pointer-events: none; }
 .rn-caption { position: absolute; top: 2rem; right: var(--edge); display: flex; gap: 0.8rem; z-index: 10; }
