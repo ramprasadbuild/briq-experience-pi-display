@@ -8,6 +8,7 @@
 //   {t:'identify', name, device_id, seconds}    identify overlay
 //   {t:'content', …}                            content switched: re-request the open project
 //   {t:'reload'}                                reload the page
+//   {t:'signage', signage}                      the idle loop: {items:[{id, kind, name, url}], settings}
 //   {t:'project', slug, state:'ready', manifest} | {…, state:'missing'} | {…, state:'error', error}
 //
 // and the page talks back with `window.ReactNativeWebView.postMessage(JSON)`:

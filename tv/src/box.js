@@ -40,6 +40,24 @@ export function useDevice() {
   return { status, identify, contentTick, connected };
 }
 
+const NO_SIGNAGE = { items: [], settings: {} };
+
+/**
+ * The idle loop's playlist: {items: [{id, kind, name, url}], settings}. Only the Android TV host
+ * has one (it stores the files and sends {t:'signage'} on ready and on every change); elsewhere
+ * the list stays empty and the idle screen is all there is.
+ */
+export function useSignage() {
+  const [signage, setSignage] = useState(NO_SIGNAGE);
+  useEffect(() => {
+    if (!hostBridge) return undefined;
+    return onHost((m) => {
+      if (m.t === 'signage' && m.signage && Array.isArray(m.signage.items)) setSignage(m.signage);
+    });
+  }, []);
+  return signage;
+}
+
 /** Presenter frames → `dispatch({type:'frame', state, at})` for the kioskState reducer. */
 export function useRelayFrames(dispatch) {
   useEffect(() => {

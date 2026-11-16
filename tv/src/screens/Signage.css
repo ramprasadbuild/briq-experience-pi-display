@@ -1,0 +1,3 @@
+.signage { position: absolute; inset: 0; overflow: hidden; background: #000; animation: fade-in 600ms ease both; }
+.signage-slide { position: absolute; inset: 0; width: 100%; height: 100%; background: #000; }
+.signage-in { animation: fade-in 900ms ease both; }
