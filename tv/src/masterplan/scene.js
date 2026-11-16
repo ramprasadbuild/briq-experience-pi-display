@@ -13,6 +13,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { createGlobe } from './globe.js';
 
 /** What the sun, the sky and the haze look like in each mood. `dir` points from the site to the sun. */
 const LOOKS = {
@@ -121,6 +122,38 @@ function carGeometry() {
   return g;
 }
 
+/** A tree: a trunk under a lumpy crown. Vertex colour 1 = crown (tinted per instance), dark = trunk. */
+function treeGeometry() {
+  const paint = (g, c) => { const n = g.attributes.position.count; const a = new Float32Array(n * 3); for (let i = 0; i < n; i++) { a[i * 3] = c[0]; a[i * 3 + 1] = c[1]; a[i * 3 + 2] = c[2]; } g.setAttribute('color', new THREE.BufferAttribute(a, 3)); return g; };
+  const trunk = paint(new THREE.CylinderGeometry(0.09, 0.13, 0.5, 5).translate(0, 0.25, 0), [0.32, 0.24, 0.17]);
+  const crown = new THREE.IcosahedronGeometry(0.42, 0).scale(1, 1.15, 1).translate(0, 0.78, 0);
+  const g = mergeGeometries([trunk.toNonIndexed(), paint(crown.toNonIndexed(), [1, 1, 1])]); trunk.dispose(); crown.dispose();
+  g.computeVertexNormals();
+  return g;
+}
+
+/** A low-poly hill or mountain: a cone with its ridges pushed about, coloured green at the foot to rock at the top. */
+function peakGeometry(rand, radius, height, rocky) {
+  const g = new THREE.ConeGeometry(radius, height, 9 + Math.floor(rand() * 4), 4, true).translate(0, height / 2, 0).toNonIndexed();
+  const p = g.attributes.position; const col = new Float32Array(p.count * 3);
+  const foot = new THREE.Color(rocky ? '#5f7a3c' : '#4f7a2e'); const mid = new THREE.Color(rocky ? '#7c7656' : '#5d8436'); const top = new THREE.Color(rocky ? '#9a9483' : '#6e8f45');
+  const seen = new Map(); const c = new THREE.Color();
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i); const y = p.getY(i); const z = p.getZ(i);
+    const key = `${x.toFixed(2)},${y.toFixed(2)},${z.toFixed(2)}`;
+    // The same corner must move the same way in every face that shares it, or the surface tears.
+    let d = seen.get(key);
+    if (!d) { const f = y / height; d = [(rand() - 0.5) * radius * 0.35 * (1 - f * 0.6), y > 0.01 && y < height - 0.01 ? (rand() - 0.5) * height * 0.22 : 0, (rand() - 0.5) * radius * 0.35 * (1 - f * 0.6)]; seen.set(key, d); }
+    p.setXYZ(i, x + d[0], Math.max(0, y + d[1]), z + d[2]);
+    const f = Math.min(1, Math.max(0, (y + d[1]) / height));
+    if (f < 0.5) c.copy(foot).lerp(mid, f / 0.5); else c.copy(mid).lerp(top, (f - 0.5) / 0.5);
+    col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
 function skyDome(radius) {
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
@@ -147,8 +180,12 @@ const PIN_CSS = `
 
 /**
  * @param {HTMLElement} el  the element the scene fills (position: relative)
- * @param {{ onEvent?: (e: object) => void, maxDpr?: number, interactive?: boolean, shadows?: boolean, pinScale?: number }} opts
+ * @param {{ onEvent?: (e: object) => void, maxDpr?: number, interactive?: boolean, shadows?: boolean, pinScale?: number,
+ *           intro?: { lat: number, lng: number, place?: string, sub?: string, earthUrl?: string } | null }} opts
  *   pinScale enlarges the zone pins (a TV is read from across the room).
+ *   intro opens on the globe (globe.js): the Earth turns to `lat, lng`, drops onto its pin and dives
+ *   through cloud into the site, which loads meanwhile. Reported as {t:'intro', phase:'site'} when
+ *   the clouds part and {t:'intro', phase:'done'} once they are gone.
  */
 export function createMasterPlan(el, opts = {}) {
   const emit = opts.onEvent || (() => {});
@@ -199,6 +236,23 @@ export function createMasterPlan(el, opts = {}) {
   let ambientDef = null;            // host config: roads and flocks for this model
   let life = null;                  // built: { cars, birds }
   let followed = false; let camGoal = null;               // viewer: the presenter's camera, eased towards each frame
+  // The globe opening: 'globe' (the Earth, then the dive) → 'hold' (in cloud until the model is
+  // ready) → 'clear' (the clouds part over the site) → null.
+  let globe = null; let introPhase = null; let introT0 = 0; let introLast = 0; let buildPending = false; let clearT0 = 0; let lastPct = null;
+  /** Opens (or re-opens) on the globe. A site already built just waits under the clouds. */
+  function startIntro(site) {
+    if (globe || !site || !Number.isFinite(site.lat) || !Number.isFinite(site.lng)) return;
+    try {
+      globe = createGlobe(renderer, el, { ...site, pinScale: opts.pinScale });
+      globe.resize(el.clientWidth || 1, el.clientHeight || 1);
+      // The clock starts on the first frame actually drawn (stepIntro): a slow device may need
+      // seconds to compile and upload the globe, and the opening must not play out unseen.
+      introPhase = 'globe'; introT0 = 0;
+      if (pinLayer) pinLayer.style.visibility = 'hidden';
+      dirty = true;
+    } catch { globe = null; introPhase = null; }
+  }
+  startIntro(opts.intro);
 
   const invalidate = () => { dirty = true; };
 
@@ -212,6 +266,7 @@ export function createMasterPlan(el, opts = {}) {
   function resize() {
     const w = el.clientWidth || 1; const h = el.clientHeight || 1;
     renderer.setSize(w, h, false);
+    if (globe) globe.resize(w, h);
     camera.aspect = w / h;
     // A tall, narrow screen sees less of the site at the same distance; widen the lens a little.
     camera.fov = w < h ? 52 : 38;
@@ -384,6 +439,7 @@ export function createMasterPlan(el, opts = {}) {
     home = { target, span: Math.max(size.x, size.z, 200), bounds: frame.clone(), north, planMap };
     controls.minDistance = Math.max(60, home.span * 0.04);
     controls.maxDistance = home.span * 1.55;
+    buildSurroundings();
 
     // Selection ring on the ground under the picked zone.
     ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1, 8), new THREE.MeshBasicMaterial({ color: GOLD, transparent: true, opacity: 0, depthWrite: false, fog: false, side: THREE.DoubleSide }));
@@ -403,14 +459,181 @@ export function createMasterPlan(el, opts = {}) {
     resize();
     emit({ t: 'model', state: 'ready', zones: zones.filter((z) => z.selectable).map((z) => ({ id: z.id, name: z.name, count: z.count })) });
 
-    // Opening move: come down from high above the plan to the home view.
+    // Opening move: come down from high above the plan to the home view — once the globe's clouds
+    // part, when there is a globe (enterSite).
+    if (introPhase === 'globe' || introPhase === 'hold') { /* enterSite() places the camera */ }
+    else enterSite();
+    if (selectedId) { const keep = selectedId; selectedId = null; select(keep, false); }
+  }
+
+  /** The camera's first pose over the site: the descent on the tablet, the presenter's camera on a TV. */
+  function enterSite() {
     const to = viewPose('home');
     if (!introDone && interactive) {
       introDone = true;
       setPose({ target: home.target.clone(), radius: home.span * 1.5, phi: 0.06, theta: to.theta - 0.9 });
       fly(to, 3200, () => emit({ t: 'intro', done: true }));
-    } else if (camGoal) { followed = true; setPose(camGoal); camGoal = null; } else setPose(to);
-    if (selectedId) { const keep = selectedId; selectedId = null; select(keep, false); }
+    } else if (camGoal) { followed = true; setPose(camGoal); camGoal = null; } else setPose(interactive || followed ? to : { target: home.target.clone(), radius: home.span * 1.5, phi: 0.06, theta: to.theta - 0.9 });
+  }
+
+  /** One frame of the globe opening. True while the site isn't drawn yet. */
+  function stepIntro(now) {
+    const w = el.clientWidth || 1; const h = el.clientHeight || 1;
+    if (introPhase === 'globe') {
+      if (!introT0) {
+        globe.pose(0, w, h); globe.cloud(0, 0);
+        renderer.render(globe.scene, globe.camera);
+        introT0 = performance.now(); introLast = introT0;
+        return true;
+      }
+      // A long stall (the site model parsing, say) pauses the opening instead of skipping ahead.
+      const gap = now - introLast; introLast = now;
+      if (gap > 120) introT0 += gap - 16;
+      const thick = globe.pose(now - introT0, w, h);
+      globe.cloud(thick, thick * 0.5);
+      renderer.render(globe.scene, globe.camera);
+      if (thick >= 1) { introPhase = 'hold'; globe.hideGlobe(); }
+      return true;
+    }
+    if (introPhase === 'hold') {
+      if (buildPending) {
+        buildPending = false; globe.waiting(true, 100);
+        // Let the "preparing" note paint before the stall.
+        setTimeout(() => { if (!disposed && modelRoot && !home) build(); }, 60);
+        return true;
+      }
+      if (!home) { globe.waiting(true, lastPct); return true; }
+      globe.waiting(false);
+      introPhase = 'clear'; clearT0 = now;
+      enterSite();
+      emit({ t: 'intro', phase: 'site' });
+    }
+    // 'clear': the site draws as usual under the thinning cloud.
+    const k = clamp((now - clearT0) / 1800, 0, 1);
+    globe.cloud(1 - k, 0.5 + k * 0.9);
+    dirty = true;
+    if (k >= 1) { globe.dispose(); globe = null; introPhase = null; pinLayer.style.visibility = ''; emit({ t: 'intro', phase: 'done' }); }
+    return false;
+  }
+  if (globe) pinLayer.style.visibility = 'hidden';
+
+  // ---- Surroundings: fields, trees, hills and mountains beyond the plan -----------------------
+
+  /**
+   * The country around the site, so the plan doesn't float on a bare green sheet: farm plots,
+   * groves of trees, low hills nearby and a ring of mountains in the haze. Seeded, so the tablet and
+   * the TV grow the same landscape; nothing here is pickable or casts shadows.
+   */
+  function buildSurroundings() {
+    const rand = rng(20261117);
+    const { target, span } = home; const map = home.planMap; const b = home.bounds;
+    const du2 = map ? map.du.lengthSq() : 0; const dv2 = map ? map.dv.lengthSq() : 0; const rel = new THREE.Vector3();
+    /** Whether (x, z) lies on (or right beside) the painted plan, which keeps its own trees. */
+    const onPlan = (x, z, m = 0.03) => {
+      if (map) {
+        rel.set(x - map.o.x, 0, z - map.o.z);
+        const u = (rel.x * map.du.x + rel.z * map.du.z) / du2; const v = (rel.x * map.dv.x + rel.z * map.dv.z) / dv2;
+        return u > -m && u < 1 + m && v > -m && v < 1 + m;
+      }
+      const mx = (b.max.x - b.min.x) * m; const mz = (b.max.z - b.min.z) * m;
+      return x > b.min.x - mx && x < b.max.x + mx && z > b.min.z - mz && z < b.max.z + mz;
+    };
+    const around = (rMin, rMax) => { const a = rand() * Math.PI * 2; const r = rMin + (rMax - rMin) * Math.sqrt(rand()); return [target.x + Math.cos(a) * r, target.z + Math.sin(a) * r]; };
+    /**
+     * Points in a band just outside the plan: `near`–`far` beyond its edge, as fractions of its
+     * size (along its own axes when it is a painted plan, which may lie turned).
+     */
+    const edgePoint = () => (near, far) => {
+      for (let tries = 0; tries < 30; tries++) {
+        let u = rand() * (1 + 2 * far) - far; let v = rand() * (1 + 2 * far) - far;
+        // Push points that fell on the plan out past its nearest edge.
+        const inside = u > -near && u < 1 + near && v > -near && v < 1 + near;
+        if (inside) {
+          const off = near + rand() * (far - near); const side = Math.floor(rand() * 4);
+          if (side === 0) u = -off; else if (side === 1) u = 1 + off; else if (side === 2) v = -off; else v = 1 + off;
+        }
+        if (map) return [map.o.x + map.du.x * u + map.dv.x * v, map.o.z + map.du.z * u + map.dv.z * v];
+        return [b.min.x + (b.max.x - b.min.x) * u, b.min.z + (b.max.z - b.min.z) * v];
+      }
+      return around(span * 0.5, span * 0.8);
+    };
+    const group = new THREE.Group(); group.name = 'surroundings'; siteGroup.add(group);
+
+    // Farm plots: flat patches of crop, fallow and grass in the apron.
+    const FIELD = ['#7ea33c', '#9fb24e', '#c2b46a', '#5f8f2e', '#b8975c', '#a9b955', '#8c7a4e', '#6c9a35'];
+    const plots = [];
+    for (let i = 0; i < 420 && plots.length < 260; i++) {
+      // Mostly close in, where the camera spends its time.
+      const a = rand() * Math.PI * 2; const r = span * (0.55 + 1.25 * Math.pow(rand(), 1.6));
+      const x = target.x + Math.cos(a) * r; const z = target.z + Math.sin(a) * r;
+      if (onPlan(x, z, 0.1)) continue;
+      const w = span * (0.06 + rand() * 0.12); const d = span * (0.04 + rand() * 0.09);
+      const g = new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2).rotateY(rand() * Math.PI).translate(x, -0.4, z).toNonIndexed();
+      const c = new THREE.Color(FIELD[Math.floor(rand() * FIELD.length)]); const col = new Float32Array(g.attributes.position.count * 3);
+      for (let k = 0; k < col.length; k += 3) { col[k] = c.r; col[k + 1] = c.g; col[k + 2] = c.b; }
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3)); plots.push(g);
+    }
+    // ... and a ring of plots right along the plan's edge.
+    const plotEdge = edgePoint();
+    for (let i = 0; i < 90; i++) {
+      const [x, z] = plotEdge(0.03, 0.2);
+      const w = span * (0.05 + rand() * 0.1); const d = span * (0.04 + rand() * 0.07);
+      const g = new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2).rotateY(rand() * Math.PI).translate(x, -0.4, z).toNonIndexed();
+      const c = new THREE.Color(FIELD[Math.floor(rand() * FIELD.length)]); const col = new Float32Array(g.attributes.position.count * 3);
+      for (let k = 0; k < col.length; k += 3) { col[k] = c.r; col[k + 1] = c.g; col[k + 2] = c.b; }
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3)); plots.push(g);
+    }
+    if (plots.length) {
+      // Flat on flat ground: drawn as a decal after the apron (renderOrder 1), without writing depth, so
+      // overlapping plots can't fight each other (they simply paint in order) and a strong offset
+      // keeps them in front of the apron (but not of the hills' slopes) at any zoom. Otherwise they shimmer as the camera moves.
+      const mesh = new THREE.Mesh(mergeGeometries(plots), new THREE.MeshLambertMaterial({ vertexColors: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -8 }));
+      plots.forEach((g) => g.dispose()); mesh.frustumCulled = false; mesh.renderOrder = 1; group.add(mesh);
+    }
+
+    // Trees: groves, thickest near the plan's edge, thinning into the distance, plus strays.
+    const trees = [];
+    const plant = (x, z) => { if (!onPlan(x, z)) trees.push([x, z, 0.75 + rand() * 0.6]); };
+    for (let gI = 0; gI < 300; gI++) {
+      const [cx, cz] = around(span * 0.5, span * 2.0);
+      const n = 12 + Math.floor(rand() * 40); const spread = span * (0.015 + rand() * 0.045);
+      for (let k = 0; k < n; k++) { const a = rand() * Math.PI * 2; const r = spread * Math.sqrt(rand()); plant(cx + Math.cos(a) * r, cz + Math.sin(a) * r); }
+    }
+    for (let k = 0; k < 1200; k++) { const [x, z] = around(span * 0.5, span * 2.2); plant(x, z); }
+    // A thick belt right along the plan's edge, so the plan doesn't end in a bare strip of grass.
+    const edge = edgePoint();
+    for (let gI = 0; gI < 140; gI++) {
+      const [cx, cz] = edge(0.015, 0.16);
+      const n2 = 10 + Math.floor(rand() * 30); const spread = span * (0.012 + rand() * 0.03);
+      for (let k = 0; k < n2; k++) { const a = rand() * Math.PI * 2; const r = spread * Math.sqrt(rand()); plant(cx + Math.cos(a) * r, cz + Math.sin(a) * r); }
+    }
+    for (let k = 0; k < 900; k++) { const [x, z] = edge(0.012, 0.22); plant(x, z); }
+    if (trees.length) {
+      const size = span * 0.03;
+      const mesh = new THREE.InstancedMesh(treeGeometry(), new THREE.MeshLambertMaterial({ vertexColors: true }), trees.length);
+      const dummy = new THREE.Object3D(); const tint = new THREE.Color(); const GREENS = ['#3f6b25', '#4a7a2b', '#2f5a1f', '#5a8431', '#456f2a'];
+      trees.forEach(([x, z, s], i) => {
+        dummy.position.set(x, -1, z); dummy.rotation.set(0, rand() * Math.PI * 2, 0); dummy.scale.setScalar(size * s); dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix); mesh.setColorAt(i, tint.set(GREENS[Math.floor(rand() * GREENS.length)]));
+      });
+      mesh.frustumCulled = false; group.add(mesh);
+    }
+
+    // Hills nearby and mountains on the horizon, merged into one mesh.
+    const peaks = [];
+    for (let k = 0; k < 14; k++) {
+      const [x, z] = around(span * 1.0, span * 1.9);
+      if (onPlan(x, z, 0.25)) continue;
+      peaks.push(peakGeometry(rand, span * (0.08 + rand() * 0.1), span * (0.015 + rand() * 0.03), false).translate(x, -1, z));
+    }
+    for (let k = 0; k < 34; k++) {
+      const a = (k / 34) * Math.PI * 2 + (rand() - 0.5) * 0.25; const r = span * (2.2 + rand() * 1.6);
+      peaks.push(peakGeometry(rand, span * (0.22 + rand() * 0.3), span * (0.08 + rand() * 0.22), true).translate(target.x + Math.cos(a) * r, -1, target.z + Math.sin(a) * r));
+    }
+    if (peaks.length) {
+      const mesh = new THREE.Mesh(mergeGeometries(peaks), new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+      peaks.forEach((g) => g.dispose()); mesh.frustumCulled = false; group.add(mesh);
+    }
   }
 
   // ---- Life: cars on the roads, birds overhead --------------------------------------------------
@@ -690,6 +913,7 @@ export function createMasterPlan(el, opts = {}) {
     if (disposed) return;
     raf = requestAnimationFrame(frame);
     const dt = Math.min(0.1, (now - lastT) / 1000); lastT = now;
+    if (globe && stepIntro(now)) return;
     if (flight) stepFlight(now);
     else if (interactive) controls.update(dt);
     else if (camGoal && home) stepFollow(dt);
@@ -713,9 +937,10 @@ export function createMasterPlan(el, opts = {}) {
       if (!url || url === modelUrl) return;
       modelUrl = url;
       emit({ t: 'model', state: 'loading' });
-      loadModel(url, (e) => { if (e && e.total) emit({ t: 'progress', pct: Math.round((e.loaded / e.total) * 100) }); }).then((root) => {
+      loadModel(url, (e) => { if (e && e.total) { lastPct = Math.round((e.loaded / e.total) * 100); emit({ t: 'progress', pct: lastPct }); } }).then((root) => {
         if (disposed || modelUrl !== url) return;
-        modelRoot = root; build();
+        // Building the site is one long stall on a slow device; while the globe turns it waits for the clouds.
+        modelRoot = root; if (introPhase === 'globe') buildPending = true; else build();
       }).catch((e) => { if (modelUrl === url) { modelUrl = null; emit({ t: 'model', state: 'error', message: String((e && e.message) || e) }); } });
     },
     /** `[{ id, match, name }]`: a top-level node whose name starts with `match` belongs to that zone. */
@@ -740,6 +965,16 @@ export function createMasterPlan(el, opts = {}) {
     /** Shift the picture sideways by a fraction of the width, to clear a panel beside it. */
     setShift(x) { shiftX = Number(x) || 0; applyShift(); invalidate(); },
     zoomBy(f) { if (!home) return; const p = getPose(); fly({ ...p, radius: clamp(p.radius / f, controls.minDistance, controls.maxDistance) }, 350); },
+    /** Play the globe opening now (a viewer whose presenter started it after this scene was made). */
+    playIntro(site) { startIntro(site); },
+    /** Cut the globe opening short: straight into the dive. */
+    skipIntro() {
+      if (introPhase !== 'globe') return;
+      const now = performance.now();
+      if (!introT0) { introT0 = now - 6700; introLast = now; } else if (now - introT0 < 6700) introT0 = now - 6700;
+    },
+    /** Whether the globe opening is still covering the site. */
+    introPlaying() { return introPhase === 'globe' || introPhase === 'hold'; },
     /** Viewer hosts: put the camera where the presenter's is (`{t:'cam'}` fields). */
     applyCam(c) {
       if (!c || typeof c.r !== 'number') return;
@@ -751,6 +986,7 @@ export function createMasterPlan(el, opts = {}) {
     },
     dispose() {
       disposed = true; cancelAnimationFrame(raf); ro.disconnect(); controls.dispose(); clearSite();
+      if (globe) { globe.dispose(); globe = null; }
       sky.geometry.dispose(); sky.material.dispose(); sun.shadow.dispose?.(); renderer.dispose();
       renderer.domElement.remove(); pinLayer.remove(); style.remove();
     },

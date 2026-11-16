@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { pad2 } from '../format.js';
-import { masterPlanFor, ZONE_KIND_LABEL, zoneCountText } from '../masterplan/pack.js';
+import { globeSiteFor, masterPlanFor, ZONE_KIND_LABEL, zoneCountText } from '../masterplan/pack.js';
 import { ChapterHead, Empty, Kicker, Loading, Pill } from '../ui/Chrome.jsx';
 import MasterPlan3D from '../ui/MasterPlan3D.jsx';
 import './MasterPlan.css';
@@ -15,6 +15,11 @@ export default function MasterPlan({ data, s, meta }) {
   const pack = useMemo(() => masterPlanFor(data), [data]);
   const [found, setFound] = useState([]);
   const [status, setStatus] = useState('loading');
+  // The globe opening plays while the tablet plays it (s.globe); it is its own loading screen.
+  const site = useMemo(() => globeSiteFor(data), [data]);
+  const [introDone, setIntroDone] = useState(false);
+  const introOn = !!s.globe && !introDone;
+  useEffect(() => { if (s.globe) setIntroDone(false); }, [s.globe]);
 
   if (!pack) {
     return <><Empty title="No master plan yet" icon="map-pin">No master plan published for this project yet.</Empty><ChapterHead data={data} meta={meta} /></>;
@@ -38,12 +43,14 @@ export default function MasterPlan({ data, s, meta }) {
         model={pack.model}
         zones={pack.zones}
         ambient={pack.ambient}
-        state={{ zone: s.zone ?? null, lighting, rain: !!s.rain, shiftX, cam: s.cam ?? null }}
+        site={site}
+        state={{ zone: s.zone ?? null, lighting, rain: !!s.rain, shiftX, cam: s.cam ?? null, globe: !!s.globe }}
         onZones={setFound}
         onStatus={setStatus}
+        onIntro={() => setIntroDone(true)}
       />
 
-      {status === 'loading' ? <div className="mp-veil"><Loading label="Preparing the township" /></div> : null}
+      {status === 'loading' && !introOn ? <div className="mp-veil"><Loading label="Preparing the township" /></div> : null}
       {status === 'error' ? <div className="mp-veil"><Empty title="3D view unavailable">The township model could not be shown on this TV.</Empty></div> : null}
 
       <ChapterHead data={data} meta={meta} />

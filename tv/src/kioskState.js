@@ -27,7 +27,7 @@ export function defaultKiosk(slug) {
     location: { poi: null, is_3d: false, measuring: false, map_cam: null },
     // The 3D township: the picked zone (a pack zone id), the light, the guided tour's stop (index into
     // the pack's zones; null = not touring) and the tablet's camera {tx, ty, tz, r, phi, theta}.
-    masterplan: { zone: null, lighting: 'day', rain: false, tour: null, cam: null },
+    masterplan: { zone: null, lighting: 'day', rain: false, tour: null, cam: null, globe: false },
   };
 }
 

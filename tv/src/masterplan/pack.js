@@ -31,6 +31,20 @@ export function masterPlanFor(_data) {
   return TOWNSHIP;
 }
 
+/** Pune, for a project that has no pin on the map yet. */
+const DEFAULT_SITE = { lat: 18.5204, lng: 73.8567, place: 'Pune' };
+
+/** Where the globe opening lands — a port of the tablet's globeSiteFor (src/masterplan/index.ts). */
+export function globeSiteFor(data) {
+  const lat = Number(data?.lat); const lng = Number(data?.lng);
+  const has = data?.lat != null && data?.lng != null && Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0);
+  const parts = String(data?.location ?? '').split(',').map((p) => p.trim()).filter(Boolean);
+  const f = (v, p, n) => `${Math.abs(v).toFixed(2)}° ${v >= 0 ? p : n}`;
+  if (!has) return { lat: DEFAULT_SITE.lat, lng: DEFAULT_SITE.lng, place: DEFAULT_SITE.place, sub: `${f(DEFAULT_SITE.lat, 'N', 'S')} · ${f(DEFAULT_SITE.lng, 'E', 'W')}` };
+  const place = parts.length ? parts[parts.length - 1] : data.name;
+  return { lat, lng, place, sub: parts.length > 1 ? parts.join(' · ') : `${f(lat, 'N', 'S')} · ${f(lng, 'E', 'W')}` };
+}
+
 export const ZONE_KIND_LABEL = { towers: 'Residences', villas: 'Villas', amenity: 'Amenity', landmark: 'Landmark' };
 
 /** "5 towers", "1 villa"; empty for a zone that is a single landmark. */
