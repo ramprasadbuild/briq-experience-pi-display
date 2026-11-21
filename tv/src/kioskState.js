@@ -18,6 +18,8 @@ export function defaultKiosk(slug) {
     inventory: {
       level: 'aerial', tower_id: null, floor: null, unit_no: null, tip_unit_no: null, cfg: null, unit_mode: 'standard',
       model_cam: { theta: 35, phi: 55, radius: null, spin: true, labels: true }, compare: [], show_details: false,
+      // Units whose price the presenter has revealed. Anything else shows no price on the TV.
+      price_units: [],
       // Live 3D model: the tablet's camera {yaw, pitch (radians), zoom, tod (time of day, 0 = 05:00 … 1 = 21:00), season (today | summer | winter)} and its status filter (null = all).
       scene_cam: null, status_filter: null, plan_full: null,
     },
@@ -29,6 +31,12 @@ export function defaultKiosk(slug) {
     // the pack's zones; null = not touring) and the tablet's camera {tx, ty, tz, r, phi, theta}.
     masterplan: { zone: null, lighting: 'day', rain: false, tour: null, cam: null, globe: false },
   };
+}
+
+/** True only when the tablet has revealed this unit's price. A missing or malformed list hides it. */
+export function priceRevealed(inventory, unitNo) {
+  const list = inventory?.price_units;
+  return Array.isArray(list) && unitNo != null && list.some((n) => String(n) === String(unitNo));
 }
 
 /** Shallow-merges each chapter object so a sender may omit fields it didn't change. */

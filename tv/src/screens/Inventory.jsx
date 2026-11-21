@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { areaText, ordinal, priceText } from '../format.js';
+import { priceRevealed } from '../kioskState.js';
 import { heroImage } from '../project.js';
 import { centroid, floorPlateFor, resolveRenderPack, unitPosition } from '../renderPack.js';
 import { STATUS_LABEL, statusColor, xc } from '../tokens.js';
@@ -129,7 +130,7 @@ export default function Inventory({ data, s, meta }) {
           <KV label="Status" value={(STATUS_LABEL[tip.status] ?? tip.status).toUpperCase()} color={statusColor(tip.status)} />
           <KV label="Unit type" value={tip.bhk ?? '—'} />
           <KV label="Area" value={areaText(tip.carpet_area, 'sqft')} />
-          <KV label="Price" value={priceText(tip.price, null)} color={xc.gold} />
+          {priceRevealed(s, tip.unit_no) ? <KV label="Price" value={priceText(tip.price, null)} color={xc.gold} /> : null}
         </div>
       ) : null}
 
@@ -196,7 +197,7 @@ function Inventory3D({ inv, meta }) {
           <KV label="Status" value={(STATUS_LABEL[tip.status] ?? tip.status).toUpperCase()} color={statusColor(tip.status)} />
           <KV label="Unit type" value={tip.bhk ?? '—'} />
           <KV label="Area" value={areaText(tip.carpet_area, 'sqft')} />
-          <KV label="Price" value={priceText(tip.price, null)} color={xc.gold} />
+          {priceRevealed(s, tip.unit_no) ? <KV label="Price" value={priceText(tip.price, null)} color={xc.gold} /> : null}
         </div>
       ) : null}
 
@@ -214,7 +215,7 @@ function Inventory3D({ inv, meta }) {
                 <KV label="Type" value={picked.bhk ?? '—'} />
                 <KV label="Area" value={areaText(picked.carpet_area, 'sqft')} />
                 <KV label="Facing" value={picked.facing ?? '—'} />
-                <KV label="Price" value={priceText(picked.price, null)} color={xc.gold} />
+                {priceRevealed(s, picked.unit_no) ? <KV label="Price" value={priceText(picked.price, null)} color={xc.gold} /> : null}
               </div>
               {plan ? <img className="inv3d-unit-plan" src={plan} alt="" /> : <FlatPlan className="inv3d-unit-plan" at={planAt} measured={s.unit_mode === 'sqft'} />}
             </div>
@@ -325,8 +326,8 @@ function CompareTable({ inv, className }) {
             ['Carpet', ({ unit: u }) => areaText(u.carpet_area, mode === 'sqm' ? 'sqm' : 'standard')],
             ['Facing', ({ unit: u }) => u.facing ?? '—'],
             ['Status', ({ unit: u }) => STATUS_LABEL[u.status] ?? u.status],
-            ['Price', ({ unit: u }) => priceText(u.price, null)],
-          ].map(([label, fn]) => (
+            ['Price', ({ unit: u }) => (priceRevealed(inv.s, u.unit_no) ? priceText(u.price, null) : '—')],
+          ].filter(([label]) => label !== 'Price' || cols.some((c) => priceRevealed(inv.s, c.unit.unit_no))).map(([label, fn]) => (
             <tr key={label}><td className="inv-td-label">{label.toUpperCase()}</td>{cols.map((c) => <td key={c.unit.unit_no}>{fn(c)}</td>)}</tr>
           ))}
         </tbody>
@@ -484,7 +485,8 @@ function UnitView({ inv }) {
 
   const detailRows = [
     ['Unit', unit.unit_no], ['Type', unit.bhk ?? '—'], ['Status', STATUS_LABEL[unit.status] ?? unit.status],
-    ['Carpet', areaText(unit.carpet_area, mode === '3d' ? 'standard' : mode)], ['Facing', unit.facing ?? '—'], ['Indicative price', priceText(unit.price, null)],
+    ['Carpet', areaText(unit.carpet_area, mode === '3d' ? 'standard' : mode)], ['Facing', unit.facing ?? '—'],
+    ...(priceRevealed(s, unit.unit_no) ? [['Indicative price', priceText(unit.price, null)]] : []),
   ];
   const kvColor = (k) => (k === 'Status' ? statusColor(unit.status) : k === 'Indicative price' ? xc.gold : undefined);
 
